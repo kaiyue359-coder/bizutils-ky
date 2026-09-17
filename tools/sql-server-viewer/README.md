@@ -41,12 +41,6 @@ This is a viewer, not a database manager.
 
 ## Quick Start
 
-Enter this tool directory after cloning the repository:
-
-```bash
-cd tools/sql-server-viewer
-```
-
 Install dependencies:
 
 ```bash
@@ -83,8 +77,6 @@ SQLSV_API_PORT=3001
 SQLSV_WEB_PORT=5173
 ```
 
-Do not commit `.env`. It is your private local configuration file. The repository only includes `.env.example` as a template.
-
 Check SQL Server connectivity:
 
 ```bash
@@ -108,30 +100,14 @@ http://127.0.0.1:5173/
 On Windows, double-click:
 
 ```text
-启动 SQL Server Viewer.bat
+start-sql-server-viewer.bat
 ```
 
 The window must stay open while using the viewer. Closing the window stops the app.
 
+The Chinese launcher `启动 SQL Server Viewer.bat` is also included. If a downloaded copy closes immediately or has filename encoding issues, use `start-sql-server-viewer.bat`.
+
 ## Configuration
-
-Each user must create their own `.env` file from `.env.example`.
-
-| Key | Required | Description |
-| --- | --- | --- |
-| `SQLSV_DEMO_MODE` | Yes | `true` uses demo data. `false` connects to SQL Server. |
-| `SQLSV_HOST` | Yes | SQL Server host name or IP address. |
-| `SQLSV_PORT` | Yes | SQL Server port, usually `1433`. |
-| `SQLSV_USER` | Yes | SQL Server read-only user name. |
-| `SQLSV_PASSWORD` | Yes | Password for the read-only user. Keep it only in local `.env`. |
-| `SQLSV_ENCRYPT` | Yes | Whether to use encrypted SQL Server connection. |
-| `SQLSV_TRUST_SERVER_CERTIFICATE` | Yes | Set to `true` for self-signed/internal certificates when needed. |
-| `SQLSV_DATABASE_ALLOWLIST` | No | Optional comma-separated database allowlist. Empty means visible non-system databases. |
-| `SQLSV_TABLE_ALLOWLIST` | No | Optional comma-separated table allowlist. Empty means visible tables. |
-| `SQLSV_DEFAULT_PAGE_SIZE` | Yes | Default grid page size. |
-| `SQLSV_MAX_PAGE_SIZE` | Yes | Maximum allowed page size. |
-| `SQLSV_API_PORT` | Yes | Local backend port. |
-| `SQLSV_WEB_PORT` | Yes | Local web app port. |
 
 ### `SQLSV_DEMO_MODE`
 
