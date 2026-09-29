@@ -236,6 +236,17 @@ button {
   text-align: right;
 }
 
+.data-source-select {
+  min-width: 148px;
+  background: white;
+  font-weight: 700;
+}
+
+.data-source-select .MuiSelect-select {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
 .avatar {
   display: grid;
   width: 42px;

@@ -1,10 +1,12 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import { appConfig } from "./config";
+import { getActiveDataSource, getAvailableDataSources, setActiveDataSource } from "./activeDataSource";
 import { demoMetadata, getDemoTableData } from "./demoData";
 import { closePools } from "./sqlServer";
-import { getMetadata } from "./metadata";
-import { getTableData } from "./readonlyQueryBuilder";
+import { closeMySqlPool } from "./mysql";
+import { getDataSourceMetadata } from "./dataSource";
+import { getTableData } from "./tableData";
 
 const app = Fastify({ logger: true });
 
@@ -14,14 +16,31 @@ await app.register(cors, {
 
 app.get("/api/health", async () => ({
   ok: true,
-  mode: appConfig.demoMode ? "demo" : "sql-server"
+  mode: appConfig.demoMode ? "demo" : getActiveDataSource().id
 }));
+
+app.get("/api/data-sources", async () => ({
+  activeId: getActiveDataSource().id,
+  sources: getAvailableDataSources().filter((source) => source.configured)
+}));
+
+app.post<{ Params: { id: string } }>("/api/data-sources/:id/activate", async (request) => {
+  const previousId = getActiveDataSource().id;
+  setActiveDataSource(request.params.id);
+  try {
+    await getDataSourceMetadata();
+    return { activeId: getActiveDataSource().id };
+  } catch (error) {
+    setActiveDataSource(previousId);
+    throw error;
+  }
+});
 
 app.get("/api/metadata", async () => {
   if (appConfig.demoMode) {
     return { databases: demoMetadata };
   }
-  const databases = await getMetadata();
+  const databases = await getDataSourceMetadata();
   return { databases };
 });
 
@@ -78,6 +97,7 @@ app.setErrorHandler((error, _request, reply) => {
 
 const shutdown = async () => {
   await closePools();
+  await closeMySqlPool();
   await app.close();
 };
 

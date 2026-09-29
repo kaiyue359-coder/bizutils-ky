@@ -1,17 +1,19 @@
 import { appConfig } from "./config";
-import { getMetadata } from "./metadata";
+import { getActiveDataSource } from "./activeDataSource";
+import { getDataSourceMetadata } from "./dataSource";
 import { closePools } from "./sqlServer";
+import { closeMySqlPool } from "./mysql";
 
 const main = async () => {
   if (appConfig.demoMode) {
-    throw new Error("SQLSV_DEMO_MODE is true. Set SQLSV_DEMO_MODE=false in .env before checking SQL Server.");
+    throw new Error("SQLSV_DEMO_MODE is true. Set SQLSV_DEMO_MODE=false in .env before checking a database connection.");
   }
 
-  const metadata = await getMetadata();
+  const metadata = await getDataSourceMetadata();
   const databaseCount = metadata.length;
   const tableCount = metadata.reduce((sum, database) => sum + database.tables.length, 0);
 
-  console.log("SQL Server connection OK.");
+  console.log(`${getActiveDataSource().id} connection OK.`);
   console.log(`Databases visible: ${databaseCount}`);
   console.log(`Tables visible: ${tableCount}`);
   for (const database of metadata.slice(0, 10)) {
@@ -27,4 +29,5 @@ main()
   })
   .finally(async () => {
     await closePools();
+    await closeMySqlPool();
   });

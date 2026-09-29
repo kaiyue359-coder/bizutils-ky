@@ -1,18 +1,20 @@
 import { appConfig } from "./config";
+import { getActiveDataSource } from "./activeDataSource";
 import { getPool, sql } from "./sqlServer";
 import type { ColumnMeta, DatabaseNode, TableNode } from "../shared/types";
 
 const systemDatabases = new Set(["master", "model", "msdb", "tempdb"]);
 
 const isAllowedDatabase = (name: string) =>
-  appConfig.databaseAllowlist.length === 0 || appConfig.databaseAllowlist.includes(name);
+  getActiveDataSource().databaseAllowlist.length === 0 || getActiveDataSource().databaseAllowlist.includes(name);
 
 const isAllowedTable = (database: string, schema: string, table: string) => {
-  if (appConfig.tableAllowlist.length === 0) {
+  const { tableAllowlist } = getActiveDataSource();
+  if (tableAllowlist.length === 0) {
     return true;
   }
   const keys = [`${database}.${schema}.${table}`, `${schema}.${table}`, table];
-  return keys.some((key) => appConfig.tableAllowlist.includes(key));
+  return keys.some((key) => tableAllowlist.includes(key));
 };
 
 export const formatRowCount = (count: number | null) => {

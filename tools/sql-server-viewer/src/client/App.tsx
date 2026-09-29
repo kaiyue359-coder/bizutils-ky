@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { DataGrid, GridColDef, GridColumnVisibilityModel, GridSortModel } from "@mui/x-data-grid";
 import type { DatabaseNode, TableDataResponse, TableNode } from "../shared/types";
-import { fetchMetadata, fetchTableData } from "./api";
+import { activateDataSource, fetchDataSources, fetchMetadata, fetchTableData, type DataSource } from "./api";
 
 const pageSizeOptions = [50, 100, 200, 500];
 
@@ -58,6 +58,9 @@ const HeaderCell = ({ name, description }: { name: string; description?: string 
 
 export const App = () => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
+  const [dataSources, setDataSources] = useState<DataSource[]>([]);
+  const [activeDataSource, setActiveDataSource] = useState<DataSource["id"] | null>(null);
+  const [switchingDataSource, setSwitchingDataSource] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(354);
   const [isResizingSidebar, setIsResizingSidebar] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(["order_data", "device_management"]));
@@ -79,17 +82,15 @@ export const App = () => {
   const [loadingRows, setLoadingRows] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadMetadata = async () => {
+  const loadMetadata = async (resetTable = false) => {
     setLoadingMetadata(true);
     setError(null);
     try {
       const result = await fetchMetadata();
       setDatabases(result.databases);
       const tables = result.databases.flatMap((database) => database.tables);
-      const preferredTable = tables.find((table) => table.name === "order_items");
-      if (preferredTable) {
-        setActiveTable((current) => current ?? preferredTable);
-      }
+      const preferredTable = tables.find((table) => table.name === "order_items") ?? tables[0] ?? null;
+      setActiveTable((current) => (resetTable || !current ? preferredTable : current));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load metadata.");
     } finally {
@@ -98,8 +99,38 @@ export const App = () => {
   };
 
   useEffect(() => {
-    void loadMetadata();
+    void (async () => {
+      try {
+        const result = await fetchDataSources();
+        setDataSources(result.sources);
+        setActiveDataSource(result.activeId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load data sources.");
+      }
+      await loadMetadata(true);
+    })();
   }, []);
+
+  const handleDataSourceChange = async (nextId: DataSource["id"]) => {
+    if (nextId === activeDataSource) return;
+    setSwitchingDataSource(true);
+    setError(null);
+    try {
+      const result = await activateDataSource(nextId);
+      setActiveDataSource(result.activeId);
+      setActiveTable(null);
+      setTableData(null);
+      setPage(0);
+      setSortModel([]);
+      setFilters([]);
+      setColumnVisibilityModel({});
+      await loadMetadata(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to switch data source.");
+    } finally {
+      setSwitchingDataSource(false);
+    }
+  };
 
   useEffect(() => {
     if (!isResizingSidebar) {
@@ -311,8 +342,21 @@ export const App = () => {
           <div className="connection-status">
             <Database size={20} />
             <div>
-              <strong>本地 SQL Server Viewer</strong>
-              <span>上次刷新：{new Date().toLocaleString("zh-CN", { hour12: false })}</span>
+              <Select
+                aria-label="切换数据源"
+                className="data-source-select"
+                disabled={switchingDataSource || dataSources.length < 2}
+                size="small"
+                value={activeDataSource ?? ""}
+                onChange={(event) => void handleDataSourceChange(event.target.value as DataSource["id"])}
+              >
+                {dataSources.map((source) => (
+                  <MenuItem key={source.id} value={source.id}>
+                    {source.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <span>{switchingDataSource ? "正在验证连接..." : "只读数据浏览"}</span>
             </div>
             <div className="avatar">U</div>
           </div>

@@ -1,5 +1,31 @@
 import type { DatabaseNode, TableDataResponse } from "../shared/types";
 
+export type DataSource = {
+  id: "sqlserver" | "mysql";
+  label: string;
+};
+
+export const fetchDataSources = async () => {
+  const response = await fetch("/api/data-sources");
+  if (!response.ok) {
+    throw new Error("Failed to load data sources.");
+  }
+  return (await response.json()) as { activeId: DataSource["id"]; sources: DataSource[] };
+};
+
+export const activateDataSource = async (id: DataSource["id"]) => {
+  const response = await fetch(`/api/data-sources/${id}/activate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: "{}"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(payload?.message ?? "Failed to switch data source.");
+  }
+  return (await response.json()) as { activeId: DataSource["id"] };
+};
+
 export const fetchMetadata = async () => {
   const response = await fetch("/api/metadata");
   if (!response.ok) {
