@@ -1,0 +1,3810 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>平面图区域标注工具</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    :root {
+      --bg: #f3f5f7;
+      --panel: #ffffff;
+      --line: #d8dee6;
+      --text: #1d2733;
+      --muted: #667085;
+      --blue: #2f6fed;
+      --blue-dark: #245bc7;
+      --red: #cf3030;
+      --green: #22805f;
+      --shadow: 0 8px 24px rgba(30, 41, 59, 0.08);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--bg);
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
+      font-size: 14px;
+    }
+
+    body.drag-over::after {
+      content: "松开鼠标导入文件";
+      position: fixed;
+      inset: 14px;
+      z-index: 50;
+      display: grid;
+      place-items: center;
+      color: var(--blue);
+      font-size: 28px;
+      font-weight: 700;
+      background: rgba(255, 255, 255, 0.82);
+      border: 3px dashed var(--blue);
+      border-radius: var(--radius);
+      pointer-events: none;
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      height: 100%;
+      min-width: 1100px;
+    }
+
+    .topbar {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      flex-wrap: wrap;
+    }
+
+    .hint {
+      color: #405064;
+      line-height: 1.45;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr 360px;
+      min-height: 0;
+    }
+
+    aside {
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+    }
+
+    .right-panel {
+      border-right: 0;
+      border-left: 1px solid var(--line);
+    }
+
+    .stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(45deg, #eef1f5 25%, transparent 25%),
+        linear-gradient(-45deg, #eef1f5 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #eef1f5 75%),
+        linear-gradient(-45deg, transparent 75%, #eef1f5 75%);
+      background-color: #e8edf3;
+      background-size: 24px 24px;
+      background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      margin: 18px 0 10px;
+      font-size: 14px;
+      line-height: 1.3;
+      color: #26364a;
+    }
+
+    label {
+      display: block;
+      margin: 8px 0 5px;
+      color: #35465c;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      outline: none;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      height: 34px;
+      padding: 0 9px;
+    }
+
+    input[type="color"] {
+      width: 42px;
+      height: 34px;
+      padding: 2px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    input[type="range"] {
+      width: 100%;
+    }
+
+    textarea {
+      min-height: 120px;
+      padding: 8px;
+      resize: vertical;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre;
+    }
+
+    button,
+    .file-button {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 0 11px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #26364a;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+
+    button:hover,
+    .file-button:hover {
+      border-color: #b8c3d1;
+      background: #f8fafc;
+    }
+
+    button.primary,
+    .file-button.primary {
+      color: #fff;
+      border-color: var(--blue);
+      background: var(--blue);
+    }
+
+    button.primary:hover,
+    .file-button.primary:hover {
+      border-color: var(--blue-dark);
+      background: var(--blue-dark);
+    }
+
+    button.danger {
+      color: #fff;
+      border-color: var(--red);
+      background: var(--red);
+    }
+
+    button.ghost-danger {
+      color: var(--red);
+      border-color: #efb4b4;
+      background: #fff;
+    }
+
+    button.active {
+      color: #fff;
+      border-color: var(--green);
+      background: var(--green);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .row > * {
+      min-width: 0;
+    }
+
+    .row .grow {
+      flex: 1;
+    }
+
+    .rgb-row {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+
+    .rgb-row input {
+      text-align: center;
+      padding: 0 4px;
+    }
+
+    .mini-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .button-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .button-grid button {
+      width: 100%;
+    }
+
+    .preset-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 6px;
+    }
+
+    .preset-btn {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      align-items: center;
+      justify-content: start;
+      height: auto;
+      min-height: 32px;
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    .preset-btn .preset-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid rgba(0, 0, 0, 0.16);
+    }
+
+    .preset-btn .preset-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .quick-hint {
+      margin-bottom: 8px;
+    }
+
+    .layout.coords-collapsed {
+      grid-template-columns: 300px 1fr 0;
+    }
+
+    .layout.coords-collapsed .right-panel {
+      display: none;
+    }
+
+    .curve-control-line {
+      pointer-events: none;
+    }
+
+    .auto-save-status {
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .region-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .region-item {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .region-item:hover {
+      background: #f8fafc;
+    }
+
+    .region-item.selected {
+      border-color: var(--blue);
+      background: #eef5ff;
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .swatch {
+      width: 18px;
+      height: 18px;
+      border: 1px solid rgba(0, 0, 0, 0.12);
+      border-radius: 4px;
+    }
+
+    .region-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 700;
+    }
+
+    .region-meta {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .toggle-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .checkbox {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: #35465c;
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .checkbox input {
+      margin: 0;
+    }
+
+    .panel-block {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: #fbfcfe;
+    }
+
+    .statusbar {
+      display: grid;
+      grid-template-columns: 220px 240px 1fr 190px;
+      gap: 10px;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 12px;
+      color: #31435a;
+      background: #fff;
+      border-top: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .statusbar span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .kbd {
+      display: inline-block;
+      min-width: 24px;
+      padding: 1px 5px;
+      border: 1px solid #cfd6df;
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      background: #fff;
+      color: #35465c;
+      text-align: center;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    .small-select {
+      width: auto;
+      min-width: 86px;
+    }
+
+    .zoom-text {
+      min-width: 64px;
+      color: #35465c;
+      text-align: center;
+      font-weight: 700;
+    }
+
+    .copy-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin: 8px 0 10px;
+    }
+
+    .point-editor {
+      display: grid;
+      gap: 6px;
+      max-height: 220px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+
+    .point-row {
+      display: grid;
+      grid-template-columns: 52px 1fr 1fr;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .point-row span {
+      color: #35465c;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .point-row input {
+      height: 30px;
+      padding: 0 6px;
+      text-align: right;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+
+    @media (max-width: 1180px) {
+      .app {
+        min-width: 980px;
+      }
+
+      .layout {
+        grid-template-columns: 270px 1fr 330px;
+      }
+
+      .layout.coords-collapsed {
+        grid-template-columns: 270px 1fr 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="toolbar-row">
+        <input id="fileInput" class="hidden" type="file" accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf">
+        <label for="fileInput" class="file-button primary">导入文件</label>
+        <div id="pageControls" class="row hidden">
+          <button id="prevPageBtn" type="button">上一页</button>
+          <select id="pageSelect" class="small-select"></select>
+          <button id="nextPageBtn" type="button">下一页</button>
+        </div>
+        <button id="zoomOutBtn" type="button">缩小</button>
+        <button id="zoomInBtn" type="button">放大</button>
+        <button id="fitBtn" type="button">适应屏幕</button>
+        <button id="actualBtn" type="button">100%</button>
+        <span id="zoomLabel" class="zoom-text">100%</span>
+        <label class="checkbox"><input id="gridToggle" type="checkbox">显示网格</label>
+        <select id="gridSizeSelect" class="small-select">
+          <option value="10">10px</option>
+          <option value="25" selected>25px</option>
+          <option value="50">50px</option>
+          <option value="100">100px</option>
+        </select>
+        <label class="checkbox"><input id="crosshairToggle" type="checkbox" checked>辅助线</label>
+        <button id="panModeBtn" type="button">拖动画布</button>
+        <button id="rightPanelToggle" type="button">显示坐标</button>
+        <input id="projectInput" class="hidden" type="file" accept=".json,application/json">
+        <label for="projectInput" class="file-button">导入标注</label>
+        <button id="saveProjectBtn" type="button">单独导出标注</button>
+        <button id="exportBtn" type="button" class="primary">导出图 + 标注</button>
+        <button id="clearAllBtn" type="button" class="ghost-danger">清空区域</button>
+      </div>
+      <div class="hint">
+        操作：导入底图后，点击常用区域名称即可开始绘制；依次点击顶点，点回第一个点附近自动闭合。选中区域后可拖动顶点，点“新增点”再点边线可插入顶点，也可双击边线新增点；右键顶点删除；拖动边中间的菱形点即可拉出圆弧，圆弧会经过这个菱形点；双击菱形点恢复直线。
+      </div>
+    </header>
+
+    <main id="layout" class="layout coords-collapsed">
+      <aside>
+        <h2>区域管理</h2>
+        <div class="panel-block">
+          <label>常用区域名称</label>
+          <div id="presetButtons" class="preset-grid"></div>
+          <div class="mini-note quick-hint">点击名称会自动带出默认颜色并开始绘制。弧线不用切换模式：拖动边中间的菱形点即可拉出圆弧，圆弧会经过这个点；双击菱形点恢复直线。</div>
+
+          <select id="quickName" class="hidden">
+            <option value="">选择常用名称</option>
+          </select>
+
+          <label for="regionNameInput">自定义区域名称</label>
+          <input id="regionNameInput" type="text" list="regionNameList" placeholder="可输入自定义名称">
+          <datalist id="regionNameList"></datalist>
+
+          <label>填充颜色 / RGB</label>
+          <div class="row">
+            <input id="fillColorInput" type="color" value="#f5e1b4" aria-label="填充颜色">
+            <div class="rgb-row grow">
+              <input id="rgbR" type="number" min="0" max="255" value="245" aria-label="R">
+              <input id="rgbG" type="number" min="0" max="255" value="225" aria-label="G">
+              <input id="rgbB" type="number" min="0" max="255" value="180" aria-label="B">
+            </div>
+          </div>
+
+          <label for="opacityRange">透明度</label>
+          <div class="row">
+            <input id="opacityRange" class="grow" type="range" min="0" max="1" step="0.05" value="0.45">
+            <input id="opacityNumber" type="number" min="0" max="1" step="0.05" value="0.45" style="width:72px">
+          </div>
+
+          <div class="control-grid">
+            <div>
+              <label for="strokeColorInput">边界线颜色</label>
+              <input id="strokeColorInput" type="color" value="#a06b2d">
+            </div>
+            <div>
+              <label for="strokeWidthInput">边界线宽度</label>
+              <input id="strokeWidthInput" type="number" min="1" max="20" step="1" value="3">
+            </div>
+          </div>
+
+          <div class="button-grid">
+            <button id="newRegionBtn" type="button" class="primary">新建自定义区域</button>
+            <button id="closeRegionBtn" type="button">闭合区域</button>
+            <button id="undoPointBtn" type="button">撤销点</button>
+            <button id="cancelDrawBtn" type="button">取消绘制</button>
+            <button id="addVertexBtn" type="button">新增点</button>
+            <button id="deleteVertexBtn" type="button" class="hidden">删除顶点</button>
+            <button id="curveEdgeBtn" type="button" class="hidden">曲线边</button>
+            <button id="straightEdgeBtn" type="button" class="hidden">恢复直线</button>
+            <button id="deleteRegionBtn" type="button" class="danger">删除当前区域</button>
+            <button id="showLegendBtn" type="button">隐藏图例</button>
+          </div>
+          <div class="mini-note">编辑区：选中闭合区域后，可点“新增点”再点击边线插入顶点；双击边线也可新增点。右键顶点删除，撤销点删除最后一个顶点。</div>
+        </div>
+
+        <h3>显示内容</h3>
+        <div class="toggle-row">
+          <label class="checkbox"><input id="showFillToggle" type="checkbox" checked>区域填充</label>
+          <label class="checkbox"><input id="showStrokeToggle" type="checkbox" checked>区域边界</label>
+          <label class="checkbox"><input id="showLabelToggle" type="checkbox" checked>区域名称</label>
+          <label class="checkbox"><input id="showLegendToggle" type="checkbox" checked>图例</label>
+        </div>
+
+        <label for="legendScaleRange">图例大小</label>
+        <div class="row">
+          <input id="legendScaleRange" class="grow" type="range" min="0.5" max="2" step="0.1" value="1">
+          <span id="legendScaleLabel" class="zoom-text">100%</span>
+        </div>
+        <div class="mini-note">图例会跟随图片缩放，并始终限制在图片范围内；可拖动调整位置。</div>
+
+        <h3>区域列表</h3>
+        <div id="regionList" class="region-list">
+          <div class="mini-note">暂无区域。新建区域后开始点击图纸顶点。</div>
+        </div>
+      </aside>
+
+      <section id="stage" class="stage">
+        <canvas id="canvas"></canvas>
+      </section>
+
+      <aside class="right-panel">
+        <h2>坐标结果</h2>
+        <div class="panel-block">
+          <label for="formatSelect">当前区域坐标格式</label>
+          <select id="formatSelect">
+            <option value="points">格式 1：points 数组</option>
+            <option value="object">格式 2：带区域名称</option>
+            <option value="text">格式 3：纯文本说明</option>
+          </select>
+          <textarea id="currentOutput" readonly placeholder="选中或闭合一个区域后显示坐标"></textarea>
+          <label>修改点坐标</label>
+          <div id="pointEditor" class="point-editor">
+            <div class="mini-note">选中区域后，可在这里直接修改每个点的 x / y 坐标。</div>
+          </div>
+          <div class="mini-note">坐标基于原始图片像素；修改后画布和坐标结果会同步更新。</div>
+          <div class="copy-row">
+            <button id="copyCurrentBtn" type="button">复制当前区域坐标</button>
+            <button id="copyAllBtn" type="button">复制全部区域坐标</button>
+          </div>
+
+          <label for="allOutput">全部区域坐标</label>
+          <textarea id="allOutput" readonly placeholder="所有已闭合区域会显示在这里"></textarea>
+        </div>
+
+        <h3>当前坐标</h3>
+        <div class="panel-block">
+          <div id="coordReadout">x：-　y：-</div>
+          <div id="selectionReadout" class="mini-note">当前未选中区域</div>
+        </div>
+
+        <h3>快捷键</h3>
+        <div class="panel-block mini-note">
+          <p><span class="kbd">Ctrl</span> + <span class="kbd">Z</span>：撤销上一个点</p>
+          <p><span class="kbd">Esc</span>：取消当前绘制</p>
+          <p><span class="kbd">Delete</span>：删除选中区域</p>
+          <p><span class="kbd">Space</span>：切换拖动画布模式</p>
+          <p>新增点按钮 / 双击边线：新增顶点；右键顶点：删除顶点</p>
+          <p>曲线边：点边线后拖动菱形点调整弧度</p>
+        </div>
+
+        <h3>PDF 提示</h3>
+        <div class="panel-block mini-note">
+          PDF 使用 PDF.js CDN 渲染。若双击打开时 PDF 无法显示，请在项目根目录运行 <span class="kbd">python -m http.server 8000</span>，再访问 <span class="kbd">http://localhost:8000/tools/annotation.html</span>。
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="mouseStatus">鼠标坐标：-</span>
+      <span id="selectedStatus">选中区域：无</span>
+      <span id="actionStatus">状态：请导入 PDF、PNG 或 JPG 文件</span>
+      <span id="autoSaveStatus" class="auto-save-status">自动保存：-</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+
+      const DEFAULT_OPACITY = 0.45;
+      const STORAGE_KEY = "plan-annotation-custom-region-names";
+      const PROJECT_STORAGE_PREFIX = "plan-annotation-project-v3:";
+      const AUTOSAVE_DELAY = 400;
+      const IMAGE_TYPES = ["image/png", "image/jpeg"];
+      const NAME_GROUPS = [
+        {
+          label: "常用区域名称",
+          names: ["热厨区", "冷菜间", "水吧区", "预进间", "洗碗间", "粗加工", "仓库", "堂食区", "外摆区", "零售区", "配电间", "绿植区", "A区", "B区", "C区", "D区", "E区", "F区", "G区", "H区", "I区", "J区"]
+        }
+      ];
+
+      const LEGEND_ORDER = [
+        "热厨区",
+        "冷菜间",
+        "水吧区",
+        "预进间",
+        "洗碗间",
+        "粗加工",
+        "仓库",
+        "仓储间",
+        "堂食区",
+        "外摆区",
+        "零售区",
+        "配电间",
+        "绿植区"
+      ];
+
+      const PRESET_COLORS = {
+        "热厨区": [255, 165, 165],
+        "冷菜间": [145, 225, 235],
+
+        /* 绿色系：图中绿色框标出的区域，刻意拉开明度和饱和度 */
+        "预进间": [205, 242, 215],
+        "仓库": [145, 215, 165],
+
+        "洗碗间": [210, 180, 240],
+        "粗加工": [180, 205, 120],
+
+        /* 暖橙色系：堂食 / 外摆 / 零售，同色系但差异明显 */
+        "堂食区": [255, 226, 145],
+        "外摆区": [255, 180, 85],
+        "零售区": [225, 115, 55],
+
+        "水吧区": [145, 195, 255],
+
+        /* 绿色系延续 */
+        "绿植区": [80, 185, 115],
+        "配电间": [35, 135, 80],
+
+        "A区": [245, 225, 180],
+        "B区": [255, 220, 170],
+        "C区": [220, 235, 255],
+        "D区": [220, 240, 200],
+        "E区": [255, 210, 210],
+        "F区": [235, 225, 255],
+        "G区": [255, 235, 180],
+        "H区": [200, 235, 220],
+        "I区": [225, 215, 255],
+        "J区": [255, 225, 205]
+      };
+
+      const els = {
+        fileInput: document.getElementById("fileInput"),
+        pageControls: document.getElementById("pageControls"),
+        prevPageBtn: document.getElementById("prevPageBtn"),
+        pageSelect: document.getElementById("pageSelect"),
+        nextPageBtn: document.getElementById("nextPageBtn"),
+        zoomOutBtn: document.getElementById("zoomOutBtn"),
+        zoomInBtn: document.getElementById("zoomInBtn"),
+        fitBtn: document.getElementById("fitBtn"),
+        actualBtn: document.getElementById("actualBtn"),
+        zoomLabel: document.getElementById("zoomLabel"),
+        gridToggle: document.getElementById("gridToggle"),
+        gridSizeSelect: document.getElementById("gridSizeSelect"),
+        crosshairToggle: document.getElementById("crosshairToggle"),
+        panModeBtn: document.getElementById("panModeBtn"),
+        rightPanelToggle: document.getElementById("rightPanelToggle"),
+        projectInput: document.getElementById("projectInput"),
+        saveProjectBtn: document.getElementById("saveProjectBtn"),
+        exportBtn: document.getElementById("exportBtn"),
+        clearAllBtn: document.getElementById("clearAllBtn"),
+        layout: document.getElementById("layout"),
+        quickName: document.getElementById("quickName"),
+        presetButtons: document.getElementById("presetButtons"),
+        regionNameInput: document.getElementById("regionNameInput"),
+        regionNameList: document.getElementById("regionNameList"),
+        fillColorInput: document.getElementById("fillColorInput"),
+        rgbR: document.getElementById("rgbR"),
+        rgbG: document.getElementById("rgbG"),
+        rgbB: document.getElementById("rgbB"),
+        opacityRange: document.getElementById("opacityRange"),
+        opacityNumber: document.getElementById("opacityNumber"),
+        strokeColorInput: document.getElementById("strokeColorInput"),
+        strokeWidthInput: document.getElementById("strokeWidthInput"),
+        newRegionBtn: document.getElementById("newRegionBtn"),
+        closeRegionBtn: document.getElementById("closeRegionBtn"),
+        undoPointBtn: document.getElementById("undoPointBtn"),
+        cancelDrawBtn: document.getElementById("cancelDrawBtn"),
+        addVertexBtn: document.getElementById("addVertexBtn"),
+        deleteVertexBtn: document.getElementById("deleteVertexBtn"),
+        curveEdgeBtn: document.getElementById("curveEdgeBtn"),
+        straightEdgeBtn: document.getElementById("straightEdgeBtn"),
+        deleteRegionBtn: document.getElementById("deleteRegionBtn"),
+        showLegendBtn: document.getElementById("showLegendBtn"),
+        showFillToggle: document.getElementById("showFillToggle"),
+        showStrokeToggle: document.getElementById("showStrokeToggle"),
+        showLabelToggle: document.getElementById("showLabelToggle"),
+        showLegendToggle: document.getElementById("showLegendToggle"),
+        legendScaleRange: document.getElementById("legendScaleRange"),
+        legendScaleLabel: document.getElementById("legendScaleLabel"),
+        regionList: document.getElementById("regionList"),
+        stage: document.getElementById("stage"),
+        canvas: document.getElementById("canvas"),
+        formatSelect: document.getElementById("formatSelect"),
+        currentOutput: document.getElementById("currentOutput"),
+        pointEditor: document.getElementById("pointEditor"),
+        allOutput: document.getElementById("allOutput"),
+        copyCurrentBtn: document.getElementById("copyCurrentBtn"),
+        copyAllBtn: document.getElementById("copyAllBtn"),
+        coordReadout: document.getElementById("coordReadout"),
+        selectionReadout: document.getElementById("selectionReadout"),
+        mouseStatus: document.getElementById("mouseStatus"),
+        selectedStatus: document.getElementById("selectedStatus"),
+        actionStatus: document.getElementById("actionStatus"),
+        autoSaveStatus: document.getElementById("autoSaveStatus")
+      };
+
+      const ctx = els.canvas.getContext("2d");
+
+      const state = {
+        baseSource: null,
+        baseKind: "",
+        originalWidth: 0,
+        originalHeight: 0,
+        fileName: "",
+        sourceExt: "",
+        sourceMime: "",
+        pdfDoc: null,
+        pdfPage: 1,
+        pdfPages: 0,
+        annotationsByPage: new Map(),
+        regions: [],
+        selectedRegionId: null,
+        activeRegionId: null,
+        scale: 1,
+        offsetX: 0,
+        offsetY: 0,
+        cssWidth: 1,
+        cssHeight: 1,
+        dpr: window.devicePixelRatio || 1,
+        mouseScreen: null,
+        mouseImage: null,
+        panMode: false,
+        vertexTool: null,
+        drag: null,
+        nextRegionId: 1,
+        showFill: true,
+        showStroke: true,
+        showLabel: true,
+        showGrid: false,
+        showCrosshair: true,
+        legendVisible: true,
+        legend: { x: 24, y: 24, scale: 1, box: null },
+        customNames: loadCustomNames(),
+        autoSaveTimer: null,
+        rightPanelVisible: false
+      };
+
+      initNameControls();
+      syncControlsFromName("室内用餐区");
+      bindEvents();
+      resizeCanvas();
+      render();
+
+      function bindEvents() {
+        els.fileInput.addEventListener("change", function () {
+          if (this.files && this.files[0]) {
+            openFile(this.files[0]);
+          }
+          this.value = "";
+        });
+
+        document.addEventListener("dragover", function (event) {
+          event.preventDefault();
+          document.body.classList.add("drag-over");
+        });
+
+        document.addEventListener("dragleave", function (event) {
+          if (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight) {
+            document.body.classList.remove("drag-over");
+          }
+        });
+
+        document.addEventListener("drop", function (event) {
+          event.preventDefault();
+          document.body.classList.remove("drag-over");
+          const file = event.dataTransfer.files && event.dataTransfer.files[0];
+          if (file) openFile(file);
+        });
+
+        els.prevPageBtn.addEventListener("click", () => changePdfPage(state.pdfPage - 1));
+        els.nextPageBtn.addEventListener("click", () => changePdfPage(state.pdfPage + 1));
+        els.pageSelect.addEventListener("change", () => changePdfPage(Number(els.pageSelect.value)));
+
+        els.zoomInBtn.addEventListener("click", () => zoomAt(1.2, state.cssWidth / 2, state.cssHeight / 2));
+        els.zoomOutBtn.addEventListener("click", () => zoomAt(1 / 1.2, state.cssWidth / 2, state.cssHeight / 2));
+        els.fitBtn.addEventListener("click", fitToScreen);
+        els.actualBtn.addEventListener("click", showActualSize);
+        els.gridToggle.addEventListener("change", () => {
+          state.showGrid = els.gridToggle.checked;
+          render();
+          scheduleAutoSave();
+        });
+        els.gridSizeSelect.addEventListener("change", () => {
+          render();
+          scheduleAutoSave();
+        });
+        els.crosshairToggle.addEventListener("change", () => {
+          state.showCrosshair = els.crosshairToggle.checked;
+          render();
+          scheduleAutoSave();
+        });
+        els.panModeBtn.addEventListener("click", togglePanMode);
+        els.rightPanelToggle.addEventListener("click", toggleRightPanel);
+        els.projectInput.addEventListener("change", function () {
+          if (this.files && this.files[0]) {
+            importProjectFile(this.files[0]);
+          }
+          this.value = "";
+        });
+        els.saveProjectBtn.addEventListener("click", exportProjectFile);
+        els.exportBtn.addEventListener("click", exportCurrentFile);
+        els.clearAllBtn.addEventListener("click", clearAllRegions);
+
+        els.quickName.addEventListener("change", () => {
+          if (!els.quickName.value) return;
+          els.regionNameInput.value = els.quickName.value;
+          syncControlsFromName(els.quickName.value);
+          applyControlsToSelected();
+        });
+
+        els.regionNameInput.addEventListener("change", () => {
+          if (els.regionNameInput.value.trim()) {
+            if (PRESET_COLORS[els.regionNameInput.value.trim()]) {
+              syncControlsFromName(els.regionNameInput.value.trim());
+            }
+            applyControlsToSelected();
+          }
+        });
+
+        els.fillColorInput.addEventListener("input", () => {
+          const rgb = hexToRgb(els.fillColorInput.value);
+          setRgbInputs(rgb);
+          if (!els.strokeColorInput.dataset.manual) {
+            els.strokeColorInput.value = rgbToHex(darkenRgb(rgb, 45));
+          }
+          applyControlsToSelected();
+        });
+
+        [els.rgbR, els.rgbG, els.rgbB].forEach((input) => {
+          input.addEventListener("input", () => {
+            const rgb = getRgbInputs();
+            els.fillColorInput.value = rgbToHex(rgb);
+            if (!els.strokeColorInput.dataset.manual) {
+              els.strokeColorInput.value = rgbToHex(darkenRgb(rgb, 45));
+            }
+            applyControlsToSelected();
+          });
+        });
+
+        els.opacityRange.addEventListener("input", () => {
+          els.opacityNumber.value = Number(els.opacityRange.value).toFixed(2);
+          applyControlsToSelected();
+        });
+        els.opacityNumber.addEventListener("input", () => {
+          const value = clamp(Number(els.opacityNumber.value) || 0, 0, 1);
+          els.opacityRange.value = value;
+          applyControlsToSelected();
+        });
+        els.strokeColorInput.addEventListener("input", () => {
+          els.strokeColorInput.dataset.manual = "1";
+          applyControlsToSelected();
+        });
+        els.strokeWidthInput.addEventListener("input", applyControlsToSelected);
+
+        els.newRegionBtn.addEventListener("click", newRegion);
+        els.closeRegionBtn.addEventListener("click", closeActiveRegion);
+        els.undoPointBtn.addEventListener("click", undoLastPoint);
+        els.cancelDrawBtn.addEventListener("click", cancelDrawing);
+        els.addVertexBtn.addEventListener("click", () => toggleVertexTool("add"));
+        els.deleteVertexBtn.addEventListener("click", () => toggleVertexTool("delete"));
+        els.curveEdgeBtn.addEventListener("click", () => toggleVertexTool("curve"));
+        els.straightEdgeBtn.addEventListener("click", () => toggleVertexTool("straight"));
+        els.deleteRegionBtn.addEventListener("click", deleteSelectedRegion);
+        els.showLegendBtn.addEventListener("click", () => {
+          state.legendVisible = !state.legendVisible;
+          els.showLegendToggle.checked = state.legendVisible;
+          els.showLegendBtn.textContent = state.legendVisible ? "隐藏图例" : "显示图例";
+          render();
+          scheduleAutoSave();
+        });
+
+        els.showFillToggle.addEventListener("change", () => {
+          state.showFill = els.showFillToggle.checked;
+          render();
+          scheduleAutoSave();
+        });
+        els.showStrokeToggle.addEventListener("change", () => {
+          state.showStroke = els.showStrokeToggle.checked;
+          render();
+          scheduleAutoSave();
+        });
+        els.showLabelToggle.addEventListener("change", () => {
+          state.showLabel = els.showLabelToggle.checked;
+          render();
+          scheduleAutoSave();
+        });
+        els.showLegendToggle.addEventListener("change", () => {
+          state.legendVisible = els.showLegendToggle.checked;
+          els.showLegendBtn.textContent = state.legendVisible ? "隐藏图例" : "显示图例";
+          render();
+          scheduleAutoSave();
+        });
+
+        els.legendScaleRange.addEventListener("input", () => {
+          state.legend.scale = clamp(Number(els.legendScaleRange.value) || 1, 0.5, 2);
+          els.legendScaleLabel.textContent = Math.round(state.legend.scale * 100) + "%";
+          constrainLegendToImage();
+          render();
+          scheduleAutoSave();
+        });
+
+        els.formatSelect.addEventListener("change", updateOutputs);
+        els.pointEditor.addEventListener("change", onPointEditorChange);
+        els.copyCurrentBtn.addEventListener("click", () => copyText(els.currentOutput.value, "已复制当前区域坐标"));
+        els.copyAllBtn.addEventListener("click", () => copyText(els.allOutput.value, "已复制全部区域坐标"));
+
+        els.canvas.addEventListener("mousedown", onCanvasDown);
+        els.canvas.addEventListener("mousemove", onCanvasMove);
+        window.addEventListener("mouseup", onCanvasUp);
+        els.canvas.addEventListener("dblclick", onCanvasDoubleClick);
+        els.canvas.addEventListener("contextmenu", onCanvasContextMenu);
+        els.canvas.addEventListener("wheel", onCanvasWheel, { passive: false });
+        els.canvas.addEventListener("mouseleave", () => {
+          state.mouseScreen = null;
+          state.mouseImage = null;
+          updateMouseStatus();
+          render();
+        });
+
+        window.addEventListener("resize", resizeCanvas);
+        new ResizeObserver(resizeCanvas).observe(els.stage);
+
+        document.addEventListener("keydown", onKeyDown);
+      }
+
+      function initNameControls() {
+        els.quickName.innerHTML = '<option value="">选择常用名称</option>';
+        NAME_GROUPS.forEach((group) => {
+          const optGroup = document.createElement("optgroup");
+          optGroup.label = group.label;
+          group.names.forEach((name) => {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            optGroup.appendChild(option);
+          });
+          els.quickName.appendChild(optGroup);
+        });
+        renderNameList();
+        renderPresetButtons();
+      }
+
+      function renderPresetButtons() {
+        els.presetButtons.innerHTML = "";
+        const orderedNames = NAME_GROUPS.flatMap((group) => group.names).filter((name) => name !== "仓储间");
+        orderedNames.forEach((name) => {
+          if (!PRESET_COLORS[name]) return;
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "preset-btn";
+          button.title = "点击后直接开始绘制：" + name;
+
+          const swatch = document.createElement("span");
+          swatch.className = "preset-swatch";
+          swatch.style.background = rgbToHex(PRESET_COLORS[name]);
+          button.appendChild(swatch);
+
+          const label = document.createElement("span");
+          label.className = "preset-name";
+          label.textContent = name;
+          button.appendChild(label);
+
+          button.addEventListener("click", () => quickStartRegion(name));
+          els.presetButtons.appendChild(button);
+        });
+      }
+
+      function quickStartRegion(name) {
+        els.quickName.value = NAME_GROUPS.flatMap((group) => group.names).includes(name) ? name : "";
+        els.regionNameInput.value = name;
+        syncControlsFromName(name);
+        applyControlsToSelected();
+        if (!state.baseSource) {
+          setStatus("已选择“" + name + "”，请先导入底图");
+          return;
+        }
+        newRegion();
+      }
+
+      function renderNameList() {
+        const allNames = uniqueNames([
+          ...NAME_GROUPS.flatMap((group) => group.names),
+          ...state.customNames
+        ]);
+        els.regionNameList.innerHTML = "";
+        allNames.forEach((name) => {
+          const option = document.createElement("option");
+          option.value = name;
+          els.regionNameList.appendChild(option);
+        });
+      }
+
+      function loadCustomNames() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : [];
+          return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+        } catch (error) {
+          return [];
+        }
+      }
+
+      function saveCustomName(name) {
+        const cleaned = name.trim();
+        if (!cleaned) return;
+        const defaultNames = NAME_GROUPS.flatMap((group) => group.names);
+        if (defaultNames.includes(cleaned) || state.customNames.includes(cleaned)) return;
+        state.customNames.push(cleaned);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.customNames));
+        renderNameList();
+      }
+
+      function openFile(file) {
+        if (hasAnyRegion() && !confirm("导入新文件会清空当前页面中的区域标注。是否继续？")) {
+          return;
+        }
+
+        const name = file.name || "";
+        const ext = name.split(".").pop().toLowerCase();
+        if (file.type === "application/pdf" || ext === "pdf") {
+          openPdf(file);
+        } else if (IMAGE_TYPES.includes(file.type) || ["png", "jpg", "jpeg"].includes(ext)) {
+          openImage(file);
+        } else {
+          setStatus("不支持的文件类型，请导入 PDF、PNG、JPG 或 JPEG");
+        }
+      }
+
+      function resetForNewFile(fileName, kind) {
+        state.baseSource = null;
+        state.baseKind = kind;
+        state.originalWidth = 0;
+        state.originalHeight = 0;
+        state.fileName = fileName;
+        state.sourceExt = getFileExtension(fileName);
+        state.sourceMime = guessMimeByExtension(state.sourceExt);
+        state.pdfDoc = null;
+        state.pdfPage = 1;
+        state.pdfPages = 0;
+        state.annotationsByPage.clear();
+        state.regions = [];
+        state.selectedRegionId = null;
+        state.activeRegionId = null;
+        state.nextRegionId = 1;
+        state.legend = { x: 24, y: 24, scale: Number(els.legendScaleRange.value) || 1, box: null };
+        els.pageControls.classList.add("hidden");
+        renderRegionList();
+        updateOutputs();
+        render();
+      }
+
+      function openImage(file) {
+        resetForNewFile(file.name, "image");
+        state.sourceMime = file.type || guessMimeByExtension(state.sourceExt) || "image/png";
+        const reader = new FileReader();
+        reader.onload = function () {
+          const img = new Image();
+          img.onload = function () {
+            state.baseSource = img;
+            state.originalWidth = img.naturalWidth;
+            state.originalHeight = img.naturalHeight;
+            state.regions = [];
+            state.annotationsByPage.set(1, state.regions);
+            resetLegendPosition();
+            fitToScreen();
+            setStatus("已导入图片：" + file.name);
+            maybeRestoreStoredProject();
+          };
+          img.onerror = () => setStatus("图片读取失败");
+          img.src = reader.result;
+        };
+        reader.onerror = () => setStatus("文件读取失败");
+        reader.readAsDataURL(file);
+      }
+
+      async function openPdf(file) {
+        state.sourceMime = "application/pdf";
+        if (!window.pdfjsLib) {
+          setStatus("PDF.js 未加载，请联网或用本地服务器打开页面");
+          return;
+        }
+        resetForNewFile(file.name, "pdf");
+        try {
+          setStatus("正在渲染 PDF 第 1 页...");
+          const data = await file.arrayBuffer();
+          state.pdfDoc = await pdfjsLib.getDocument({ data }).promise;
+          state.pdfPages = state.pdfDoc.numPages;
+          state.pdfPage = 1;
+          setupPageSelector();
+          await renderPdfPage(1);
+          setStatus("已导入 PDF：" + file.name);
+          maybeRestoreStoredProject();
+        } catch (error) {
+          console.error(error);
+          setStatus("PDF 读取失败，请尝试用本地服务器打开工具");
+        }
+      }
+
+      function setupPageSelector() {
+        els.pageSelect.innerHTML = "";
+        for (let i = 1; i <= state.pdfPages; i += 1) {
+          const option = document.createElement("option");
+          option.value = String(i);
+          option.textContent = "第 " + i + " 页";
+          els.pageSelect.appendChild(option);
+        }
+        els.pageControls.classList.toggle("hidden", state.pdfPages <= 1);
+        els.pageSelect.value = String(state.pdfPage);
+        els.prevPageBtn.disabled = state.pdfPage <= 1;
+        els.nextPageBtn.disabled = state.pdfPage >= state.pdfPages;
+      }
+
+      async function changePdfPage(pageNumber) {
+        if (!state.pdfDoc) return;
+        const nextPage = clamp(pageNumber, 1, state.pdfPages);
+        if (nextPage === state.pdfPage) return;
+        saveCurrentPageAnnotations();
+        await renderPdfPage(nextPage);
+      }
+
+      async function renderPdfPage(pageNumber) {
+        const page = await state.pdfDoc.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 2 });
+        const pdfCanvas = document.createElement("canvas");
+        pdfCanvas.width = Math.ceil(viewport.width);
+        pdfCanvas.height = Math.ceil(viewport.height);
+        const pdfCtx = pdfCanvas.getContext("2d");
+        await page.render({ canvasContext: pdfCtx, viewport }).promise;
+
+        state.pdfPage = pageNumber;
+        state.baseSource = pdfCanvas;
+        state.originalWidth = pdfCanvas.width;
+        state.originalHeight = pdfCanvas.height;
+        state.regions = state.annotationsByPage.get(pageNumber) || [];
+        state.annotationsByPage.set(pageNumber, state.regions);
+        state.selectedRegionId = null;
+        state.activeRegionId = null;
+        resetLegendPosition();
+        setupPageSelector();
+        fitToScreen();
+        renderRegionList();
+        updateOutputs();
+        setStatus("当前显示 PDF 第 " + pageNumber + " 页");
+      }
+
+      function saveCurrentPageAnnotations() {
+        if (state.baseKind === "pdf") {
+          state.annotationsByPage.set(state.pdfPage, state.regions.filter((region) => !isEmptyDraftRegion(region)));
+        }
+      }
+
+      function newRegion() {
+        if (!state.baseSource) {
+          setStatus("请先导入文件");
+          return;
+        }
+        const active = getActiveRegion();
+        if (active && !active.closed && active.points.length > 0) {
+          if (!confirm("当前区域还未闭合。是否放弃当前绘制并新建区域？")) return;
+          removeRegion(active.id);
+        }
+
+        pruneEmptyDraftRegions();
+
+        const name = els.regionNameInput.value.trim() || "未命名区域";
+        saveCustomName(name);
+        const rgb = getRgbInputs();
+        const region = {
+          id: state.nextRegionId++,
+          name,
+          fillColor: rgbToHex(rgb),
+          rgb,
+          opacity: clamp(Number(els.opacityRange.value) || DEFAULT_OPACITY, 0, 1),
+          strokeColor: els.strokeColorInput.value,
+          strokeWidth: Math.max(1, Number(els.strokeWidthInput.value) || 3),
+          points: [],
+          segments: [],
+          closed: false,
+          label: null,
+          labelManual: false
+        };
+
+        state.regions.push(region);
+        state.selectedRegionId = region.id;
+        state.activeRegionId = region.id;
+        state.vertexTool = null;
+        updateToolButtons();
+        renderRegionList();
+        updateOutputs();
+        setStatus("当前正在绘制：" + region.name);
+        render();
+      }
+
+      function closeActiveRegion() {
+        const region = getActiveRegion();
+        if (!region) {
+          setStatus("没有正在绘制的区域");
+          return;
+        }
+        cleanDuplicateTail(region);
+        if (region.points.length < 3) {
+          setStatus("至少需要 3 个点才能闭合区域");
+          return;
+        }
+        region.closed = true;
+        ensureSegments(region);
+        region.label = polygonCentroid(region.points);
+        region.labelManual = false;
+        state.activeRegionId = null;
+        state.selectedRegionId = region.id;
+        state.vertexTool = null;
+        updateToolButtons();
+        renderRegionList();
+        updateOutputs();
+        setStatus("已闭合区域：" + region.name);
+        render();
+      }
+
+      function undoLastPoint() {
+        const active = getActiveRegion();
+        if (active && !active.closed) {
+          if (active.points.length === 0) {
+            setStatus("当前没有可撤销的点");
+            return;
+          }
+          active.points.pop();
+          ensureSegments(active);
+          renderRegionList();
+          updateOutputs();
+          setStatus("已撤销上一个绘制点");
+          render();
+          return;
+        }
+
+        const selected = getSelectedRegion();
+        if (!selected || selected.points.length === 0) {
+          setStatus("请先选中一个区域，或在绘制时使用撤销点");
+          return;
+        }
+
+        if (selected.closed) {
+          if (selected.points.length <= 3) {
+            setStatus("闭合区域至少需要保留 3 个顶点，不能继续撤销");
+            return;
+          }
+          deleteVertex(selected, selected.points.length - 1);
+          setStatus("已删除选中区域最后一个顶点；中间顶点可右键删除");
+          return;
+        }
+
+        selected.points.pop();
+        ensureSegments(selected);
+        renderRegionList();
+        updateOutputs();
+        setStatus("已撤销上一个绘制点");
+        render();
+      }
+
+      function cancelDrawing() {
+        const region = getActiveRegion();
+        if (!region) {
+          setStatus("没有正在绘制的区域");
+          return;
+        }
+        if (region.points.length > 0 && !confirm("是否取消当前绘制？")) return;
+        removeRegion(region.id);
+        state.activeRegionId = null;
+        setStatus("已取消当前绘制");
+      }
+
+      function deleteSelectedRegion() {
+        const region = getSelectedRegion();
+        if (!region) {
+          setStatus("请先选中区域");
+          return;
+        }
+        if (!confirm("确定删除区域“" + region.name + "”？")) return;
+        removeRegion(region.id);
+        setStatus("已删除区域：" + region.name);
+      }
+
+      function clearAllRegions() {
+        if (!hasAnyRegion()) {
+          setStatus("当前没有区域可清空");
+          return;
+        }
+        if (!confirm("确定清空所有区域？此操作不会删除原始文件，但会清空页面上的标注。")) return;
+        state.regions = [];
+        state.annotationsByPage.clear();
+        state.annotationsByPage.set(state.pdfPage || 1, state.regions);
+        state.selectedRegionId = null;
+        state.activeRegionId = null;
+        state.vertexTool = null;
+        updateToolButtons();
+        renderRegionList();
+        updateOutputs();
+        setStatus("已清空所有区域");
+        render();
+      }
+
+      function removeRegion(id) {
+        state.regions = state.regions.filter((region) => region.id !== id);
+        state.annotationsByPage.set(state.pdfPage || 1, state.regions.filter((region) => !isEmptyDraftRegion(region)));
+        if (state.selectedRegionId === id) state.selectedRegionId = null;
+        if (state.activeRegionId === id) state.activeRegionId = null;
+        renderRegionList();
+        updateOutputs();
+        render();
+      }
+
+      function isEmptyDraftRegion(region) {
+        return Boolean(region) && !region.closed && Array.isArray(region.points) && region.points.length === 0;
+      }
+
+      function pruneEmptyDraftRegions() {
+        const beforeSelected = state.selectedRegionId;
+        const beforeActive = state.activeRegionId;
+        state.regions = state.regions.filter((region) => !isEmptyDraftRegion(region));
+        if (!state.regions.some((region) => region.id === beforeSelected)) {
+          state.selectedRegionId = null;
+        }
+        if (!state.regions.some((region) => region.id === beforeActive)) {
+          state.activeRegionId = null;
+        }
+        state.annotationsByPage.set(state.pdfPage || 1, state.regions.filter((region) => !isEmptyDraftRegion(region)));
+      }
+
+      function toggleVertexTool(tool) {
+        const selected = getSelectedRegion();
+        if (!selected) {
+          setStatus("请先选中一个区域");
+          return;
+        }
+        if (["add", "curve", "straight"].includes(tool) && (!selected.closed || selected.points.length < 3)) {
+          setStatus("请先闭合区域，再编辑边线");
+          return;
+        }
+        state.panMode = false;
+        state.vertexTool = state.vertexTool === tool ? null : tool;
+        updateToolButtons();
+        if (state.vertexTool === "add") {
+          setStatus("新增点：请点击选中区域的一条边，点会插入到这条边上；也可直接双击边线");
+        } else if (state.vertexTool === "delete") {
+          setStatus("删除顶点：点击需要删除的顶点；也可右键顶点删除");
+        } else if (state.vertexTool === "curve") {
+          setStatus("曲线边：点击一条边，再拖动菱形点调整弧度");
+        } else if (state.vertexTool === "straight") {
+          setStatus("恢复直线：点击一条曲线边即可恢复成直线");
+        } else {
+          setStatus("已退出边线编辑");
+        }
+        render();
+      }
+
+      function updateToolButtons() {
+        els.addVertexBtn.classList.toggle("active", state.vertexTool === "add");
+        els.deleteVertexBtn.classList.toggle("active", state.vertexTool === "delete");
+        els.curveEdgeBtn.classList.toggle("active", state.vertexTool === "curve");
+        els.straightEdgeBtn.classList.toggle("active", state.vertexTool === "straight");
+        els.panModeBtn.classList.toggle("active", state.panMode);
+        els.panModeBtn.textContent = state.panMode ? "退出拖动" : "拖动画布";
+      }
+
+      function toggleRightPanel() {
+        state.rightPanelVisible = !state.rightPanelVisible;
+        els.layout.classList.toggle("coords-collapsed", !state.rightPanelVisible);
+        els.rightPanelToggle.textContent = state.rightPanelVisible ? "隐藏坐标" : "显示坐标";
+      }
+
+      function applyEdgeToolByClick(region, screenPoint, imagePoint) {
+        if (!region || !region.closed) {
+          setStatus("请先选中已闭合区域");
+          return;
+        }
+        const edge = findEdgeAt(screenPoint.x, screenPoint.y, region) || findNearestEdgeAt(screenPoint.x, screenPoint.y, region);
+        if (!edge) {
+          setStatus("请点击需要编辑的边线");
+          return;
+        }
+        ensureSegments(region);
+        if (state.vertexTool === "curve") {
+          region.segments[edge.edgeIndex] = { type: "curve", curveMode: "arc", through: clampPoint(imagePoint), control: null };
+          setStatus("已改为曲线边：拖动菱形点可调整弧度");
+        } else if (state.vertexTool === "straight") {
+          region.segments[edge.edgeIndex] = { type: "line", through: null, control: null };
+          setStatus("已恢复为直线边");
+        }
+        updateOutputs();
+        render();
+      }
+
+      function shouldAutoCloseActiveRegion(region, screenPoint) {
+        if (!region || region.closed || region.points.length < 3) return false;
+        const first = imageToScreen(region.points[0]);
+        return distance(screenPoint.x, screenPoint.y, first.x, first.y) <= 13;
+      }
+
+      function onCanvasDown(event) {
+        if (!state.baseSource || event.button !== 0) return;
+        const screen = getCanvasPoint(event);
+        const image = screenToImage(screen.x, screen.y);
+        state.mouseScreen = screen;
+        state.mouseImage = isInsideImage(image) ? image : null;
+
+        if (state.legendVisible && state.legend.box && pointInRect(screen, state.legend.box)) {
+          state.drag = {
+            type: "legend",
+            lastScreen: screen
+          };
+          setCanvasCursor("grabbing");
+          return;
+        }
+
+        if (state.panMode) {
+          state.drag = {
+            type: "pan",
+            lastScreen: screen
+          };
+          setCanvasCursor("grabbing");
+          return;
+        }
+
+        if (!state.mouseImage) return;
+
+        const selected = getSelectedRegion();
+
+        const curveControlHit = findCurveControlAt(screen.x, screen.y);
+        if (curveControlHit) {
+          selectRegion(curveControlHit.region.id);
+          state.drag = {
+            type: "curveControl",
+            regionId: curveControlHit.region.id,
+            index: curveControlHit.index
+          };
+          setCanvasCursor("grabbing");
+          return;
+        }
+
+        if (state.vertexTool === "add") {
+          addVertexByClick(selected, screen, image);
+          return;
+        }
+
+        if (state.vertexTool === "curve" || state.vertexTool === "straight") {
+          applyEdgeToolByClick(selected, screen, image);
+          return;
+        }
+
+        const vertexHit = findVertexAt(screen.x, screen.y);
+        if (vertexHit) {
+          selectRegion(vertexHit.region.id);
+          if (state.vertexTool === "delete") {
+            deleteVertex(vertexHit.region, vertexHit.index);
+            return;
+          }
+          state.drag = {
+            type: "vertex",
+            regionId: vertexHit.region.id,
+            index: vertexHit.index
+          };
+          setCanvasCursor("grabbing");
+          return;
+        }
+
+        const labelHit = findLabelAt(screen.x, screen.y);
+        if (labelHit) {
+          selectRegion(labelHit.region.id);
+          state.drag = {
+            type: "label",
+            regionId: labelHit.region.id
+          };
+          setCanvasCursor("grabbing");
+          return;
+        }
+
+        const regionHit = findRegionAt(image);
+        if (regionHit) {
+          selectRegion(regionHit.id);
+          if (regionHit.closed) {
+            state.drag = {
+              type: "region",
+              regionId: regionHit.id,
+              startImage: image,
+              startPoints: regionHit.points.map((point) => ({ x: point.x, y: point.y })),
+              startSegments: cloneSegments(regionHit.segments),
+              startLabel: regionHit.label ? { x: regionHit.label.x, y: regionHit.label.y } : null
+            };
+            setCanvasCursor("grabbing");
+          }
+          return;
+        }
+
+        const active = getActiveRegion();
+        if (active && !active.closed) {
+          if (shouldAutoCloseActiveRegion(active, screen)) {
+            closeActiveRegion();
+          } else {
+            addPointToRegion(active, image);
+          }
+        }
+      }
+
+      function onCanvasMove(event) {
+        const screen = getCanvasPoint(event);
+        const image = screenToImage(screen.x, screen.y);
+        state.mouseScreen = screen;
+        state.mouseImage = isInsideImage(image) ? image : null;
+        updateMouseStatus();
+
+        if (state.drag) {
+          handleDrag(screen, image);
+          render();
+          return;
+        }
+
+        updateHoverCursor(screen, image);
+        render();
+      }
+
+      function onCanvasUp() {
+        if (!state.drag) return;
+        state.drag = null;
+        setCanvasCursor(state.panMode ? "grab" : "crosshair");
+        updateOutputs();
+        renderRegionList();
+        render();
+      }
+
+      function onCanvasDoubleClick(event) {
+        event.preventDefault();
+        if (!state.baseSource) return;
+        const screen = getCanvasPoint(event);
+        const image = screenToImage(screen.x, screen.y);
+        const active = getActiveRegion();
+        if (active && !active.closed) {
+          closeActiveRegion();
+          return;
+        }
+
+        const controlHit = findCurveControlAt(screen.x, screen.y);
+        if (controlHit) {
+          ensureSegments(controlHit.region);
+          controlHit.region.segments[controlHit.index] = { type: "line", through: null, control: null };
+          updateOutputs();
+          render();
+          setStatus("已恢复为直线边");
+          return;
+        }
+
+        const selected = getSelectedRegion();
+        if (selected && selected.closed && isInsideImage(image)) {
+          addVertexByClick(selected, screen, image);
+        }
+      }
+
+      function onCanvasContextMenu(event) {
+        if (!state.baseSource) return;
+        event.preventDefault();
+        const screen = getCanvasPoint(event);
+
+        const controlHit = findCurveControlAt(screen.x, screen.y);
+        if (controlHit) {
+          ensureSegments(controlHit.region);
+          controlHit.region.segments[controlHit.index] = { type: "line", through: null, control: null };
+          updateOutputs();
+          render();
+          setStatus("已恢复为直线边");
+          return;
+        }
+
+        const vertexHit = findVertexAt(screen.x, screen.y);
+        if (vertexHit) {
+          selectRegion(vertexHit.region.id);
+          deleteVertex(vertexHit.region, vertexHit.index);
+          return;
+        }
+        setStatus("右键顶点可快速删除顶点；右键边中菱形点可恢复直线");
+      }
+
+      function onCanvasWheel(event) {
+        if (!state.baseSource) return;
+        event.preventDefault();
+        const point = getCanvasPoint(event);
+        const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+        zoomAt(factor, point.x, point.y);
+      }
+
+      function handleDrag(screen, image) {
+        const drag = state.drag;
+        if (drag.type === "pan") {
+          const dx = screen.x - drag.lastScreen.x;
+          const dy = screen.y - drag.lastScreen.y;
+          state.offsetX += dx;
+          state.offsetY += dy;
+          drag.lastScreen = screen;
+          updateZoomLabel();
+          return;
+        }
+
+        if (drag.type === "legend") {
+          const dx = (screen.x - drag.lastScreen.x) / state.scale;
+          const dy = (screen.y - drag.lastScreen.y) / state.scale;
+          state.legend.x += dx;
+          state.legend.y += dy;
+          constrainLegendToImage();
+          drag.lastScreen = screen;
+          return;
+        }
+
+        if (!state.mouseImage) return;
+
+        if (drag.type === "vertex") {
+          const region = getRegionById(drag.regionId);
+          if (!region) return;
+          region.points[drag.index] = clampPoint(image);
+          if (region.closed && !region.label) region.label = polygonCentroid(region.points);
+          updateOutputs();
+          return;
+        }
+
+        if (drag.type === "curveControl") {
+          const region = getRegionById(drag.regionId);
+          if (!region) return;
+          ensureSegments(region);
+          const segment = region.segments[drag.index];
+          if (!segment) return;
+          segment.type = "curve";
+          segment.curveMode = "arc";
+          segment.through = clampPoint(image);
+          segment.control = null;
+          updateOutputs();
+          setStatus("已调整圆弧；圆弧会经过菱形点，双击或右键菱形点可恢复直线");
+          return;
+        }
+
+        if (drag.type === "label") {
+          const region = getRegionById(drag.regionId);
+          if (!region) return;
+          region.label = clampPoint(image);
+          region.labelManual = true;
+          updateOutputs();
+          return;
+        }
+
+        if (drag.type === "region") {
+          const region = getRegionById(drag.regionId);
+          if (!region) return;
+          const dx = image.x - drag.startImage.x;
+          const dy = image.y - drag.startImage.y;
+          const adjusted = constrainDelta(drag.startPoints, dx, dy);
+          region.points = drag.startPoints.map((point) => ({
+            x: point.x + adjusted.dx,
+            y: point.y + adjusted.dy
+          }));
+          region.segments = cloneSegments(drag.startSegments).map((segment) => {
+            if (segment.type === "curve" && segment.through) {
+              segment.through = clampPoint({
+                x: segment.through.x + adjusted.dx,
+                y: segment.through.y + adjusted.dy
+              });
+            }
+            if (segment.type === "curve" && segment.control) {
+              segment.control = clampPoint({
+                x: segment.control.x + adjusted.dx,
+                y: segment.control.y + adjusted.dy
+              });
+            }
+            return segment;
+          });
+          ensureSegments(region);
+          if (drag.startLabel) {
+            region.label = clampPoint({
+              x: drag.startLabel.x + adjusted.dx,
+              y: drag.startLabel.y + adjusted.dy
+            });
+          }
+          updateOutputs();
+        }
+      }
+
+      function addPointToRegion(region, imagePoint) {
+        region.points.push(clampPoint(imagePoint));
+        ensureSegments(region);
+        state.selectedRegionId = region.id;
+        renderRegionList();
+        updateOutputs();
+        setStatus("已添加第 " + region.points.length + " 个点：" + region.name);
+        render();
+      }
+
+      function deleteVertex(region, index) {
+        if (region.closed && region.points.length <= 3) {
+          setStatus("闭合区域至少需要保留 3 个顶点");
+          return;
+        }
+        ensureSegments(region);
+        const oldLength = region.points.length;
+        region.points.splice(index, 1);
+        if (region.closed && Array.isArray(region.segments)) {
+          const mergedIndex = index === 0 ? oldLength - 2 : index - 1;
+          region.segments.splice(index, 1);
+          if (region.segments.length && region.segments[mergedIndex]) {
+            region.segments[mergedIndex] = { type: "line" };
+          }
+        } else if (Array.isArray(region.segments)) {
+          region.segments.splice(Math.max(0, index - 1), 1);
+        }
+        ensureSegments(region);
+        if (region.points.length === 0) {
+          removeRegion(region.id);
+        } else {
+          if (region.closed && !region.labelManual) {
+            region.label = polygonCentroid(region.points);
+          } else if (region.closed && !region.label) {
+            region.label = polygonCentroid(region.points);
+          }
+          renderRegionList();
+          updateOutputs();
+          render();
+        }
+        setStatus("已删除顶点");
+      }
+
+      function addVertexByClick(region, screenPoint, imagePoint) {
+        if (!region) {
+          setStatus("请先选中一个区域");
+          return;
+        }
+        if (!region.closed || region.points.length < 3) {
+          setStatus("请先闭合区域，再新增顶点");
+          return;
+        }
+
+        const nearEdge = findEdgeAt(screenPoint.x, screenPoint.y, region);
+        if (!nearEdge) {
+          setStatus("请点击区域边线来新增点；双击边线也可以直接新增");
+          return;
+        }
+
+        const edge = nearEdge;
+        if (!edge) {
+          setStatus("未找到可新增点的边");
+          return;
+        }
+
+        ensureSegments(region);
+        const edgeIndex = Math.max(0, edge.insertIndex - 1);
+        region.points.splice(edge.insertIndex, 0, clampPoint(imagePoint));
+        region.segments[edgeIndex] = { type: "line" };
+        region.segments.splice(edgeIndex + 1, 0, { type: "line" });
+        ensureSegments(region);
+        if (!region.labelManual) {
+          region.label = polygonCentroid(region.points);
+        }
+        updateOutputs();
+        renderRegionList();
+        setStatus("已新增点：点 " + edge.insertIndex);
+        render();
+      }
+
+      function selectRegion(id) {
+        const region = getRegionById(id);
+        if (!region) return;
+        state.selectedRegionId = id;
+        fillControlsFromRegion(region);
+        renderRegionList();
+        updateOutputs();
+        setStatus("已选中区域：" + region.name);
+        render();
+      }
+
+      function applyControlsToSelected() {
+        const region = getSelectedRegion();
+        if (!region) return;
+        const name = els.regionNameInput.value.trim() || "未命名区域";
+        region.name = name;
+        region.rgb = getRgbInputs();
+        region.fillColor = rgbToHex(region.rgb);
+        region.opacity = clamp(Number(els.opacityRange.value) || DEFAULT_OPACITY, 0, 1);
+        region.strokeColor = els.strokeColorInput.value;
+        region.strokeWidth = Math.max(1, Number(els.strokeWidthInput.value) || 1);
+        saveCustomName(name);
+        renderRegionList();
+        updateOutputs();
+        render();
+      }
+
+      function fillControlsFromRegion(region) {
+        els.regionNameInput.value = region.name;
+        els.quickName.value = NAME_GROUPS.flatMap((group) => group.names).includes(region.name) ? region.name : "";
+        els.fillColorInput.value = region.fillColor;
+        setRgbInputs(region.rgb);
+        els.opacityRange.value = region.opacity;
+        els.opacityNumber.value = Number(region.opacity).toFixed(2);
+        els.strokeColorInput.value = region.strokeColor;
+        els.strokeWidthInput.value = region.strokeWidth;
+      }
+
+      function syncControlsFromName(name, forcePreset = true) {
+        const rgb = PRESET_COLORS[name] || (forcePreset ? [245, 225, 180] : getRgbInputs());
+        setRgbInputs(rgb);
+        els.fillColorInput.value = rgbToHex(rgb);
+        els.strokeColorInput.dataset.manual = "";
+        els.strokeColorInput.value = rgbToHex(darkenRgb(rgb, 45));
+        els.opacityRange.value = DEFAULT_OPACITY;
+        els.opacityNumber.value = DEFAULT_OPACITY.toFixed(2);
+      }
+
+      function renderRegionList() {
+        const visibleRegions = state.regions.filter((region) => !isEmptyDraftRegion(region));
+        if (visibleRegions.length === 0) {
+          const active = getActiveRegion();
+          if (active && isEmptyDraftRegion(active)) {
+            els.regionList.innerHTML = '<div class="mini-note">已选择“' + active.name + '”，请在图纸上点击第一个点开始绘制。</div>';
+          } else {
+            els.regionList.innerHTML = '<div class="mini-note">暂无区域。点击常用区域名称后开始绘制。</div>';
+          }
+          updateSelectionStatus();
+          return;
+        }
+
+        els.regionList.innerHTML = "";
+        visibleRegions.forEach((region) => {
+          const item = document.createElement("div");
+          item.className = "region-item" + (region.id === state.selectedRegionId ? " selected" : "");
+          item.dataset.id = region.id;
+
+          const swatch = document.createElement("div");
+          swatch.className = "swatch";
+          swatch.style.background = region.fillColor;
+          item.appendChild(swatch);
+
+          const nameWrap = document.createElement("div");
+          const name = document.createElement("div");
+          name.className = "region-name";
+          name.textContent = region.name;
+          const meta = document.createElement("div");
+          meta.className = "region-meta";
+          meta.textContent = region.closed ? region.points.length + " 点，已闭合" : region.points.length + " 点，绘制中";
+          nameWrap.appendChild(name);
+          nameWrap.appendChild(meta);
+          item.appendChild(nameWrap);
+
+          const rgb = document.createElement("div");
+          rgb.className = "region-meta";
+          rgb.textContent = region.rgb.join(",");
+          item.appendChild(rgb);
+
+          item.addEventListener("click", () => selectRegion(region.id));
+          els.regionList.appendChild(item);
+        });
+        updateSelectionStatus();
+      }
+
+      function updateOutputs() {
+        const selected = getSelectedRegion();
+        if (!selected || isEmptyDraftRegion(selected)) {
+          els.currentOutput.value = "";
+        } else if (els.formatSelect.value === "points") {
+          els.currentOutput.value = JSON.stringify(pointsForOutput(selected.points));
+        } else if (els.formatSelect.value === "object") {
+          els.currentOutput.value = JSON.stringify(regionForOutput(selected), null, 2);
+        } else {
+          els.currentOutput.value = regionTextForOutput(selected);
+        }
+
+        const closed = state.regions.filter((region) => region.closed && region.points.length >= 3);
+        els.allOutput.value = closed.length ? JSON.stringify(closed.map(regionForOutput), null, 2) : "";
+        renderPointEditor();
+        updateSelectionStatus();
+        scheduleAutoSave();
+      }
+
+      function renderPointEditor() {
+        const selected = getSelectedRegion();
+        if (!selected || selected.points.length === 0) {
+          els.pointEditor.innerHTML = '<div class="mini-note">选中区域后，可在这里直接修改每个点的 x / y 坐标。</div>';
+          return;
+        }
+
+        els.pointEditor.innerHTML = "";
+        selected.points.forEach((point, index) => {
+          const row = document.createElement("div");
+          row.className = "point-row";
+
+          const label = document.createElement("span");
+          label.textContent = "点 " + (index + 1);
+          row.appendChild(label);
+
+          const xInput = document.createElement("input");
+          xInput.type = "number";
+          xInput.step = "1";
+          xInput.min = "0";
+          xInput.max = String(Math.round(state.originalWidth));
+          xInput.value = String(Math.round(point.x));
+          xInput.title = "x 坐标";
+          xInput.dataset.index = String(index);
+          xInput.dataset.axis = "x";
+          xInput.className = "point-input";
+          row.appendChild(xInput);
+
+          const yInput = document.createElement("input");
+          yInput.type = "number";
+          yInput.step = "1";
+          yInput.min = "0";
+          yInput.max = String(Math.round(state.originalHeight));
+          yInput.value = String(Math.round(point.y));
+          yInput.title = "y 坐标";
+          yInput.dataset.index = String(index);
+          yInput.dataset.axis = "y";
+          yInput.className = "point-input";
+          row.appendChild(yInput);
+
+          els.pointEditor.appendChild(row);
+        });
+      }
+
+      function onPointEditorChange(event) {
+        const target = event.target;
+        if (!target.classList || !target.classList.contains("point-input")) return;
+        const region = getSelectedRegion();
+        if (!region) return;
+
+        const index = Number(target.dataset.index);
+        const axis = target.dataset.axis;
+        if (!Number.isInteger(index) || !region.points[index] || !["x", "y"].includes(axis)) return;
+
+        const max = axis === "x" ? state.originalWidth : state.originalHeight;
+        const nextValue = clamp(Math.round(Number(target.value) || 0), 0, max);
+        region.points[index][axis] = nextValue;
+        target.value = String(nextValue);
+        if (region.closed && !region.labelManual) {
+          region.label = polygonCentroid(region.points);
+        }
+        updateOutputs();
+        renderRegionList();
+        render();
+        setStatus("已修改点 " + (index + 1) + " 的" + axis.toUpperCase() + "坐标");
+      }
+
+      function pointsForOutput(points) {
+        return points.map((point) => [Math.round(point.x), Math.round(point.y)]);
+      }
+
+      function regionForOutput(region) {
+        const result = {
+          name: region.name,
+          rgb: region.rgb.map((value) => Math.round(value)),
+          opacity: Number(region.opacity),
+          points: pointsForOutput(region.points),
+          label_position: region.label ? [Math.round(region.label.x), Math.round(region.label.y)] : centroidArray(region.points)
+        };
+        const curvedSegments = outputSegments(region);
+        if (curvedSegments.length) result.segments = curvedSegments;
+        return result;
+      }
+
+      function regionTextForOutput(region) {
+        return [
+          "区域：" + region.name,
+          "RGB：" + region.rgb.join(","),
+          "透明度：" + Number(region.opacity),
+          "坐标：" + JSON.stringify(pointsForOutput(region.points))
+        ].join("\n");
+      }
+
+      function centroidArray(points) {
+        const center = polygonCentroid(points);
+        return [Math.round(center.x), Math.round(center.y)];
+      }
+
+      async function copyText(text, message) {
+        if (!text.trim()) {
+          setStatus("没有可复制的坐标");
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (error) {
+          const temp = document.createElement("textarea");
+          temp.value = text;
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand("copy");
+          temp.remove();
+        }
+        setStatus(message);
+      }
+
+
+      function buildProjectBlob() {
+        const project = buildProjectData();
+        project.__meta = {
+          savedAt: new Date().toISOString(),
+          origin: "export",
+          sourceKey: getSourceKey()
+        };
+        return new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+      }
+
+      async function saveExportPair(renderBlob, renderName, projectBlob, projectName) {
+        if (window.isSecureContext && window.showDirectoryPicker) {
+          try {
+            const directory = await window.showDirectoryPicker({ mode: "readwrite" });
+            await writeBlobToDirectory(directory, renderName, renderBlob);
+            await writeBlobToDirectory(directory, projectName, projectBlob);
+            return;
+          } catch (error) {
+            if (error && error.name === "AbortError") throw error;
+            console.warn("目录保存不可用，改用浏览器下载。", error);
+          }
+        }
+
+        downloadBlob(renderBlob, renderName);
+        setTimeout(() => downloadBlob(projectBlob, projectName), 180);
+      }
+
+      async function writeBlobToDirectory(directory, fileName, blob) {
+        const fileHandle = await directory.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      }
+
+      function getDefaultPairBaseName() {
+        const original = (state.fileName || "标注结果").trim();
+        const base = original.replace(/\.[^/.]+$/, "") || "标注结果";
+        if (state.baseKind === "pdf" && state.pdfPages > 1) {
+          return base + "_第" + state.pdfPage + "页_标注";
+        }
+        return base + "_标注";
+      }
+
+      function sanitizeBaseName(value) {
+        const cleaned = String(value || "")
+          .replace(/[\\/:*?"<>|]+/g, "_")
+          .replace(/\.+$/g, "")
+          .trim();
+        return cleaned || getDefaultPairBaseName();
+      }
+
+      async function exportProjectFile() {
+        if (!state.baseSource) {
+          setStatus("请先导入文件");
+          return;
+        }
+        saveCurrentPageAnnotations();
+        const project = buildProjectData();
+        const defaultName = getProjectDefaultName();
+        const fileName = prompt("请输入标注文件名", defaultName);
+        if (fileName === null) return;
+        const safeName = normalizeFileName(fileName.trim() || defaultName, "json");
+        const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
+
+        let saveHandle = null;
+        if (window.isSecureContext && window.showSaveFilePicker) {
+          try {
+            saveHandle = await window.showSaveFilePicker({
+              suggestedName: safeName,
+              types: [{ description: "标注工程文件", accept: { "application/json": [".json"] } }]
+            });
+          } catch (error) {
+            if (error && error.name === "AbortError") {
+              setStatus("已取消导出");
+              return;
+            }
+          }
+        }
+
+        if (saveHandle) {
+          try {
+            const writable = await saveHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            persistProjectSnapshot("manual-export");
+            setStatus("已导出标注：" + safeName);
+            return;
+          } catch (error) {
+            console.warn("写入标注文件失败，改用下载方式。", error);
+          }
+        }
+
+        downloadBlob(blob, safeName);
+        persistProjectSnapshot("manual-export");
+        setStatus("已下载标注：" + safeName);
+      }
+
+      function importProjectFile(file) {
+        if (!state.baseSource) {
+          setStatus("请先导入底图，再导入标注文件");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function () {
+          try {
+            const project = JSON.parse(String(reader.result || ""));
+            applyProjectData(project);
+            persistProjectSnapshot("manual-import");
+          } catch (error) {
+            console.error(error);
+            setStatus("标注文件读取失败，JSON 格式无效");
+          }
+        };
+        reader.onerror = () => setStatus("标注文件读取失败");
+        reader.readAsText(file, "utf-8");
+      }
+
+      function buildProjectData() {
+        const pages = {};
+        if (state.baseKind === "pdf") {
+          state.annotationsByPage.forEach((regions, page) => {
+            pages[String(page)] = regions.filter((region) => !isEmptyDraftRegion(region)).map(serializeRegion);
+          });
+        }
+        return {
+          tool: "plan-annotation",
+          version: 2,
+          source: {
+            kind: state.baseKind,
+            fileName: state.fileName,
+            width: state.originalWidth,
+            height: state.originalHeight,
+            pdfPages: state.pdfPages || 0
+          },
+          view: {
+            showFill: state.showFill,
+            showStroke: state.showStroke,
+            showLabel: state.showLabel,
+            showGrid: state.showGrid,
+            showCrosshair: state.showCrosshair,
+            legendVisible: state.legendVisible,
+            legend: {
+              x: state.legend.x,
+              y: state.legend.y,
+              scale: state.legend.scale
+            }
+          },
+          selectedRegionId: state.selectedRegionId,
+          activeRegionId: state.activeRegionId,
+          nextRegionId: state.nextRegionId,
+          regions: state.baseKind === "pdf" ? [] : state.regions.filter((region) => !isEmptyDraftRegion(region)).map(serializeRegion),
+          annotationsByPage: pages
+        };
+      }
+
+      function applyProjectData(project) {
+        if (!project || typeof project !== "object") {
+          setStatus("标注文件无效");
+          return;
+        }
+
+        const source = project.source || {};
+        if ((source.kind || "") !== state.baseKind) {
+          setStatus("底图类型不一致，请导入对应的" + (source.kind === "pdf" ? "PDF" : "图片") + "底图");
+          return;
+        }
+
+        if (Number(source.width || 0) !== Number(state.originalWidth || 0) || Number(source.height || 0) !== Number(state.originalHeight || 0)) {
+          if (!confirm("当前底图尺寸与标注文件记录不一致，继续导入可能导致位置偏移。是否继续？")) {
+            return;
+          }
+        }
+
+        const view = project.view || {};
+        state.showFill = view.showFill !== false;
+        state.showStroke = view.showStroke !== false;
+        state.showLabel = view.showLabel !== false;
+        state.showGrid = Boolean(view.showGrid);
+        state.showCrosshair = view.showCrosshair !== false;
+        state.legendVisible = view.legendVisible !== false;
+        state.legend.x = Number(view.legend && view.legend.x) || 24;
+        state.legend.y = Number(view.legend && view.legend.y) || 24;
+        state.legend.scale = clamp(Number(view.legend && view.legend.scale) || 1, 0.5, 2);
+
+        els.showFillToggle.checked = state.showFill;
+        els.showStrokeToggle.checked = state.showStroke;
+        els.showLabelToggle.checked = state.showLabel;
+        els.gridToggle.checked = state.showGrid;
+        els.crosshairToggle.checked = state.showCrosshair;
+        els.showLegendToggle.checked = state.legendVisible;
+        els.showLegendBtn.textContent = state.legendVisible ? "隐藏图例" : "显示图例";
+        els.legendScaleRange.value = String(state.legend.scale);
+        els.legendScaleLabel.textContent = Math.round(state.legend.scale * 100) + "%";
+
+        state.selectedRegionId = Number(project.selectedRegionId) || null;
+        state.activeRegionId = Number(project.activeRegionId) || null;
+        state.nextRegionId = Math.max(1, Number(project.nextRegionId) || 1);
+
+        if (state.baseKind === "pdf") {
+          const map = new Map();
+          const pageData = project.annotationsByPage || {};
+          Object.keys(pageData).forEach((key) => {
+            const pageNum = Number(key);
+            if (!pageNum) return;
+            map.set(pageNum, Array.isArray(pageData[key]) ? pageData[key].map(deserializeRegion).filter((region) => !isEmptyDraftRegion(region)) : []);
+          });
+          state.annotationsByPage = map;
+          state.regions = (state.annotationsByPage.get(state.pdfPage) || []).filter((region) => !isEmptyDraftRegion(region));
+          state.regions.forEach(ensureSegments);
+          state.annotationsByPage.set(state.pdfPage, state.regions);
+        } else {
+          state.regions = Array.isArray(project.regions) ? project.regions.map(deserializeRegion).filter((region) => !isEmptyDraftRegion(region)) : [];
+          state.regions.forEach(ensureSegments);
+          state.annotationsByPage.set(1, state.regions);
+        }
+
+        constrainLegendToImage();
+        renderRegionList();
+        updateOutputs();
+        render();
+        persistProjectSnapshot("restore");
+        setStatus("已导入标注，可继续编辑");
+      }
+
+      function serializeRegion(region) {
+        return {
+          id: region.id,
+          name: region.name,
+          fillColor: region.fillColor,
+          rgb: Array.isArray(region.rgb) ? region.rgb.slice(0, 3) : [245, 225, 180],
+          opacity: Number(region.opacity),
+          strokeColor: region.strokeColor,
+          strokeWidth: Number(region.strokeWidth),
+          points: region.points.map((point) => ({ x: Number(point.x), y: Number(point.y) })),
+          segments: serializeSegments(region),
+          closed: Boolean(region.closed),
+          label: region.label ? { x: Number(region.label.x), y: Number(region.label.y) } : null,
+          labelManual: Boolean(region.labelManual)
+        };
+      }
+
+      function deserializeRegion(region) {
+        const next = {
+          id: Number(region.id) || state.nextRegionId++,
+          name: String(region.name || "未命名区域"),
+          fillColor: region.fillColor || rgbToHex(Array.isArray(region.rgb) ? region.rgb : [245, 225, 180]),
+          rgb: Array.isArray(region.rgb) ? region.rgb.map((n) => clamp(Math.round(Number(n) || 0), 0, 255)).slice(0, 3) : [245, 225, 180],
+          opacity: clamp(Number(region.opacity) || DEFAULT_OPACITY, 0, 1),
+          strokeColor: region.strokeColor || "#a06b2d",
+          strokeWidth: Math.max(1, Number(region.strokeWidth) || 3),
+          points: Array.isArray(region.points) ? region.points.map((point) => clampPoint({ x: Number(point.x) || 0, y: Number(point.y) || 0 })) : [],
+          segments: deserializeSegments(region.segments || []),
+          closed: Boolean(region.closed),
+          label: region.label ? clampPoint({ x: Number(region.label.x) || 0, y: Number(region.label.y) || 0 }) : null,
+          labelManual: Boolean(region.labelManual),
+          _labelBox: null
+        };
+        ensureSegments(next);
+        return next;
+      }
+
+      function getProjectDefaultName() {
+        return getDefaultPairBaseName() + ".json";
+      }
+
+      function getFileExtension(fileName) {
+        const match = String(fileName || "").toLowerCase().match(/\.([a-z0-9]+)$/);
+        return match ? match[1] : "";
+      }
+
+      function guessMimeByExtension(ext) {
+        const value = String(ext || "").toLowerCase();
+        if (value === "jpg" || value === "jpeg") return "image/jpeg";
+        if (value === "png") return "image/png";
+        if (value === "pdf") return "application/pdf";
+        return "";
+      }
+
+      function getExportImageExtension() {
+        const ext = (state.sourceExt || "").toLowerCase();
+        if (ext === "jpg" || ext === "jpeg") return "jpg";
+        return "png";
+      }
+
+      function getMimeByImageExtension(ext) {
+        return ext === "jpg" || ext === "jpeg" ? "image/jpeg" : "image/png";
+      }
+
+      function getImageQualityByExtension(ext) {
+        return ext === "jpg" || ext === "jpeg" ? 0.92 : undefined;
+      }
+
+      function getDefaultExportNameByExt(extension) {
+        const original = (state.fileName || "标注结果").trim();
+        const base = original.replace(/\.[^/.]+$/, "") || "标注结果";
+        const ext = String(extension || "").toLowerCase();
+        if (ext === "pdf") {
+          if (state.baseKind === "pdf" && state.pdfPages > 1) {
+            return base + "_第" + state.pdfPage + "页.pdf";
+          }
+          return base + ".pdf";
+        }
+        return base + "." + ext;
+      }
+
+      function normalizeFileName(fileName, extension) {
+        const cleanExt = String(extension || "").replace(/^\./, "").toLowerCase();
+        const lower = String(fileName || "").toLowerCase();
+        return lower.endsWith("." + cleanExt) ? fileName : fileName + "." + cleanExt;
+      }
+
+      function buildSingleImagePdfBlob(imageDataUrl, width, height) {
+        const imageBase64 = imageDataUrl.split(",")[1];
+        const imageBytes = base64ToUint8Array(imageBase64);
+        const pdfWidth = Math.max(1, Math.round(width));
+        const pdfHeight = Math.max(1, Math.round(height));
+
+        const objects = [];
+        function addObject(content) {
+          objects.push(content);
+          return objects.length;
+        }
+
+        const imageObjNum = addObject("<< /Type /XObject /Subtype /Image /Width " + pdfWidth + " /Height " + pdfHeight + " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + imageBytes.length + " >>\nstream\n" + bytesToBinaryString(imageBytes) + "\nendstream");
+        const contentStream = "q\n" + pdfWidth + " 0 0 " + pdfHeight + " 0 0 cm\n/Im0 Do\nQ";
+        const contentObjNum = addObject("<< /Length " + contentStream.length + " >>\nstream\n" + contentStream + "\nendstream");
+        const pageObjNum = addObject("<< /Type /Page /Parent 4 0 R /MediaBox [0 0 " + pdfWidth + " " + pdfHeight + "] /Resources << /XObject << /Im0 " + imageObjNum + " 0 R >> >> /Contents " + contentObjNum + " 0 R >>");
+        const pagesObjNum = addObject("<< /Type /Pages /Count 1 /Kids [" + pageObjNum + " 0 R] >>");
+        const catalogObjNum = addObject("<< /Type /Catalog /Pages " + pagesObjNum + " 0 R >>");
+
+        let pdf = "%PDF-1.4\n";
+        const offsets = [0];
+        for (let i = 0; i < objects.length; i += 1) {
+          offsets.push(pdf.length);
+          pdf += (i + 1) + " 0 obj\n" + objects[i] + "\nendobj\n";
+        }
+        const xrefOffset = pdf.length;
+        pdf += "xref\n0 " + (objects.length + 1) + "\n";
+        pdf += "0000000000 65535 f \n";
+        for (let i = 1; i < offsets.length; i += 1) {
+          pdf += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+        }
+        pdf += "trailer\n<< /Size " + (objects.length + 1) + " /Root " + catalogObjNum + " 0 R >>\n";
+        pdf += "startxref\n" + xrefOffset + "\n%%EOF";
+
+        return new Blob([binaryStringToUint8Array(pdf)], { type: "application/pdf" });
+      }
+
+      function base64ToUint8Array(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+
+      function bytesToBinaryString(bytes) {
+        let result = "";
+        const chunk = 8192;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          const slice = bytes.subarray(i, i + chunk);
+          result += String.fromCharCode.apply(null, Array.from(slice));
+        }
+        return result;
+      }
+
+      function binaryStringToUint8Array(binary) {
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) {
+          bytes[i] = binary.charCodeAt(i) & 255;
+        }
+        return bytes;
+      }
+
+
+      function getSourceKey() {
+        return [
+          state.baseKind || "",
+          String(state.fileName || "").trim().toLowerCase(),
+          Math.round(state.originalWidth || 0),
+          Math.round(state.originalHeight || 0),
+          Math.round(state.pdfPages || 0)
+        ].join("|");
+      }
+
+      function getProjectStorageKey() {
+        return PROJECT_STORAGE_PREFIX + getSourceKey();
+      }
+
+      function readStoredProjectForCurrentSource() {
+        if (!state.baseSource) return null;
+        try {
+          const raw = localStorage.getItem(getProjectStorageKey());
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === "object" ? parsed : null;
+        } catch (error) {
+          console.warn("读取本地暂存标注失败", error);
+          return null;
+        }
+      }
+
+      function persistProjectSnapshot(origin = "auto") {
+        if (!state.baseSource) return;
+        try {
+          saveCurrentPageAnnotations();
+          const project = buildProjectData();
+          project.__meta = {
+            savedAt: new Date().toISOString(),
+            origin,
+            storageKey: getProjectStorageKey()
+          };
+          localStorage.setItem(getProjectStorageKey(), JSON.stringify(project));
+          if (els.autoSaveStatus) {
+            els.autoSaveStatus.textContent = "自动保存：" + new Date().toLocaleTimeString();
+          }
+        } catch (error) {
+          console.warn("保存本地暂存标注失败", error);
+        }
+      }
+
+      function scheduleAutoSave() {
+        if (!state.baseSource) return;
+        if (state.autoSaveTimer) {
+          clearTimeout(state.autoSaveTimer);
+        }
+        state.autoSaveTimer = setTimeout(() => {
+          state.autoSaveTimer = null;
+          persistProjectSnapshot("auto");
+        }, AUTOSAVE_DELAY);
+      }
+
+      function maybeRestoreStoredProject() {
+        const project = readStoredProjectForCurrentSource();
+        if (!project) return;
+        const savedAt = project.__meta && project.__meta.savedAt
+          ? new Date(project.__meta.savedAt).toLocaleString()
+          : "";
+        const message = savedAt
+          ? "检测到这个底图的本地暂存/已保存标注（" + savedAt + "）。是否恢复继续编辑？"
+          : "检测到这个底图的本地暂存/已保存标注。是否恢复继续编辑？";
+        if (confirm(message)) {
+          applyProjectData(project);
+          setStatus("已恢复本地暂存标注");
+        } else {
+          setStatus("已跳过恢复本地暂存标注");
+        }
+      }
+
+      function resizeCanvas() {
+        const rect = els.stage.getBoundingClientRect();
+        state.cssWidth = Math.max(1, Math.floor(rect.width));
+        state.cssHeight = Math.max(1, Math.floor(rect.height));
+        state.dpr = window.devicePixelRatio || 1;
+        els.canvas.width = Math.floor(state.cssWidth * state.dpr);
+        els.canvas.height = Math.floor(state.cssHeight * state.dpr);
+        render();
+      }
+
+      function render() {
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        ctx.clearRect(0, 0, state.cssWidth, state.cssHeight);
+        ctx.fillStyle = "#e8edf3";
+        ctx.fillRect(0, 0, state.cssWidth, state.cssHeight);
+
+        if (!state.baseSource) {
+          drawEmptyState();
+          return;
+        }
+
+        state.regions.forEach((region) => {
+          region._labelBox = null;
+        });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        const w = state.originalWidth * state.scale;
+        const h = state.originalHeight * state.scale;
+        ctx.drawImage(state.baseSource, state.offsetX, state.offsetY, w, h);
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(42, 54, 71, 0.35)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(state.offsetX, state.offsetY, w, h);
+        ctx.restore();
+
+        if (state.showGrid) drawGrid();
+        drawRegions(ctx, "screen");
+        if (state.showCrosshair && state.mouseImage) drawCrosshair();
+        if (state.legendVisible) drawLegend(ctx, "screen");
+        updateZoomLabel();
+      }
+
+      function drawEmptyState() {
+        ctx.save();
+        ctx.fillStyle = "#42526b";
+        ctx.font = "700 22px Microsoft YaHei, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("导入 PDF、PNG 或 JPG 后开始标注", state.cssWidth / 2, state.cssHeight / 2 - 18);
+        ctx.font = "14px Microsoft YaHei, sans-serif";
+        ctx.fillStyle = "#667085";
+        ctx.fillText("也可以把文件拖拽到页面中打开", state.cssWidth / 2, state.cssHeight / 2 + 18);
+        ctx.restore();
+      }
+
+      function drawGrid() {
+        const gap = Number(els.gridSizeSelect.value) || 25;
+        const left = state.offsetX;
+        const top = state.offsetY;
+        const right = state.offsetX + state.originalWidth * state.scale;
+        const bottom = state.offsetY + state.originalHeight * state.scale;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, right - left, bottom - top);
+        ctx.clip();
+        ctx.strokeStyle = "rgba(47, 111, 237, 0.22)";
+        ctx.lineWidth = 1;
+
+        for (let x = 0; x <= state.originalWidth; x += gap) {
+          const sx = state.offsetX + x * state.scale;
+          ctx.beginPath();
+          ctx.moveTo(sx, top);
+          ctx.lineTo(sx, bottom);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= state.originalHeight; y += gap) {
+          const sy = state.offsetY + y * state.scale;
+          ctx.beginPath();
+          ctx.moveTo(left, sy);
+          ctx.lineTo(right, sy);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      function drawRegions(targetCtx, mode, options = {}) {
+        const forceAll = Boolean(options.forceAll);
+        state.regions.forEach((region) => {
+          if (region.points.length === 0) return;
+          const isSelected = region.id === state.selectedRegionId;
+          const isActive = region.id === state.activeRegionId;
+          drawRegion(targetCtx, region, mode, {
+            selected: isSelected,
+            active: isActive,
+            showFill: forceAll || state.showFill,
+            showStroke: forceAll || state.showStroke,
+            showLabel: forceAll || state.showLabel
+          });
+        });
+      }
+
+      function drawRegion(targetCtx, region, mode, flags) {
+        const points = region.points;
+        const toTarget = mode === "screen" ? imageToScreen : (point) => ({ x: point.x, y: point.y });
+        const lineScale = mode === "screen" ? state.scale : 1;
+        const screenMode = mode === "screen";
+
+        targetCtx.save();
+        drawRegionPath(targetCtx, region, toTarget);
+
+        if (region.closed && flags.showFill) {
+          targetCtx.fillStyle = rgbaFromRgb(region.rgb, region.opacity);
+          targetCtx.fill();
+        }
+
+        if (flags.showStroke || !region.closed) {
+          targetCtx.strokeStyle = region.id === state.activeRegionId ? "#e56732" : region.strokeColor;
+          targetCtx.lineWidth = Math.max(screenMode ? 1.5 : 1, region.strokeWidth * lineScale);
+          targetCtx.setLineDash(region.id === state.activeRegionId ? [8, 6] : []);
+          targetCtx.stroke();
+        }
+
+        if (screenMode && state.mouseImage && region.id === state.activeRegionId && !region.closed && points.length > 0) {
+          const last = toTarget(points[points.length - 1]);
+          const mouse = toTarget(state.mouseImage);
+          targetCtx.setLineDash([5, 5]);
+          targetCtx.strokeStyle = "#e56732";
+          targetCtx.lineWidth = 1.5;
+          targetCtx.beginPath();
+          targetCtx.moveTo(last.x, last.y);
+          targetCtx.lineTo(mouse.x, mouse.y);
+          targetCtx.stroke();
+        }
+
+        if (region.closed && flags.showLabel) {
+          drawRegionLabel(targetCtx, region, mode);
+        }
+
+        if (screenMode && (flags.selected || flags.active)) {
+          drawHandles(targetCtx, region, flags.active);
+          drawCurveControls(targetCtx, region);
+        }
+        targetCtx.restore();
+      }
+
+      function drawRegionPath(targetCtx, region, toTarget) {
+        const points = region.points;
+        ensureSegments(region);
+        const first = toTarget(points[0]);
+        targetCtx.beginPath();
+        targetCtx.moveTo(first.x, first.y);
+        const edgeCount = region.closed ? points.length : Math.max(0, points.length - 1);
+        for (let i = 0; i < edgeCount; i += 1) {
+          const end = toTarget(points[(i + 1) % points.length]);
+          if (isArcSegment(region, i)) {
+            const spec = getCircularArcSpecForSegment(region, i, toTarget);
+            if (spec) {
+              targetCtx.arc(spec.cx, spec.cy, spec.r, spec.startAngle, spec.endAngle, spec.anticlockwise);
+            } else {
+              const control = toTarget(getBezierControlForSegment(region, i));
+              targetCtx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+            }
+          } else if (isCurvedSegment(region, i)) {
+            const control = toTarget(getBezierControlForSegment(region, i));
+            targetCtx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+          } else {
+            targetCtx.lineTo(end.x, end.y);
+          }
+        }
+        if (region.closed) targetCtx.closePath();
+      }
+
+      function drawCurveControls(targetCtx, region) {
+        if (!region.closed || region.points.length < 3) return;
+        ensureSegments(region);
+        region.segments.forEach((segment, index) => {
+          const isCurve = isCurvedSegment(region, index);
+          const start = imageToScreen(region.points[index]);
+          const end = imageToScreen(region.points[(index + 1) % region.points.length]);
+          const control = imageToScreen(getSegmentControlPoint(region, index));
+
+          targetCtx.save();
+          if (isCurve) {
+            targetCtx.strokeStyle = "rgba(47, 111, 237, 0.38)";
+            targetCtx.lineWidth = 1;
+            targetCtx.setLineDash([4, 4]);
+            targetCtx.beginPath();
+            targetCtx.moveTo(start.x, start.y);
+            targetCtx.lineTo(control.x, control.y);
+            targetCtx.lineTo(end.x, end.y);
+            targetCtx.stroke();
+            targetCtx.setLineDash([]);
+          }
+
+          targetCtx.fillStyle = isCurve ? "#fff" : "rgba(255, 255, 255, 0.78)";
+          targetCtx.strokeStyle = isCurve ? "#2f6fed" : "rgba(47, 111, 237, 0.72)";
+          targetCtx.lineWidth = isCurve ? 2 : 1.5;
+          targetCtx.beginPath();
+          targetCtx.moveTo(control.x, control.y - 6);
+          targetCtx.lineTo(control.x + 6, control.y);
+          targetCtx.lineTo(control.x, control.y + 6);
+          targetCtx.lineTo(control.x - 6, control.y);
+          targetCtx.closePath();
+          targetCtx.fill();
+          targetCtx.stroke();
+          targetCtx.restore();
+        });
+      }
+
+      function drawRegionLabel(targetCtx, region, mode) {
+        const labelPoint = region.label || polygonCentroid(region.points);
+        const target = mode === "screen" ? imageToScreen(labelPoint) : labelPoint;
+        const fontSize = mode === "screen" ? 14 : Math.max(16, Math.round(state.originalWidth / 140));
+        targetCtx.save();
+        targetCtx.font = "700 " + fontSize + "px Microsoft YaHei, sans-serif";
+        targetCtx.textAlign = "center";
+        targetCtx.textBaseline = "middle";
+        const metrics = targetCtx.measureText(region.name);
+        const boxW = metrics.width + fontSize * 1.2;
+        const boxH = fontSize + 9;
+        targetCtx.fillStyle = "rgba(255, 255, 255, 0.76)";
+        roundRect(targetCtx, target.x - boxW / 2, target.y - boxH / 2, boxW, boxH, 5);
+        targetCtx.fill();
+        targetCtx.strokeStyle = "rgba(60, 75, 95, 0.24)";
+        targetCtx.lineWidth = 1;
+        targetCtx.stroke();
+        targetCtx.lineWidth = 3;
+        targetCtx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+        targetCtx.strokeText(region.name, target.x, target.y);
+        targetCtx.fillStyle = "#1f2a37";
+        targetCtx.fillText(region.name, target.x, target.y);
+        targetCtx.restore();
+
+        if (mode === "screen") {
+          region._labelBox = {
+            x: target.x - boxW / 2,
+            y: target.y - boxH / 2,
+            w: boxW,
+            h: boxH
+          };
+        }
+      }
+
+      function drawHandles(targetCtx, region, active) {
+        region.points.forEach((point, index) => {
+          const screen = imageToScreen(point);
+          targetCtx.save();
+          targetCtx.beginPath();
+          targetCtx.arc(screen.x, screen.y, active && index === region.points.length - 1 ? 7 : 5.5, 0, Math.PI * 2);
+          targetCtx.fillStyle = "#fff";
+          targetCtx.fill();
+          targetCtx.lineWidth = 2;
+          targetCtx.strokeStyle = active ? "#e56732" : "#2f6fed";
+          targetCtx.stroke();
+          targetCtx.restore();
+        });
+      }
+
+      function drawCrosshair() {
+        const p = imageToScreen(state.mouseImage);
+        const imageLeft = state.offsetX;
+        const imageTop = state.offsetY;
+        const imageRight = state.offsetX + state.originalWidth * state.scale;
+        const imageBottom = state.offsetY + state.originalHeight * state.scale;
+        ctx.save();
+        ctx.strokeStyle = "rgba(207, 48, 48, 0.42)";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(p.x, imageTop);
+        ctx.lineTo(p.x, imageBottom);
+        ctx.moveTo(imageLeft, p.y);
+        ctx.lineTo(imageRight, p.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function getLegendLayout(items) {
+        const baseWidth = 300;
+        const baseRowH = 31;
+        const baseTitleH = 36;
+        const basePad = 14;
+        const baseFont = 18;
+        const baseSwatch = 14;
+        const requestedScale = clamp(Number(state.legend.scale) || 1, 0.5, 2);
+        const baseHeight = baseTitleH + Math.max(1, items.length) * baseRowH + basePad;
+
+        const availableW = Math.max(1, state.originalWidth - 24);
+        const availableH = Math.max(1, state.originalHeight - 24);
+        const fitScale = Math.min(availableW / baseWidth, availableH / baseHeight);
+        const scale = Math.max(0.15, Math.min(requestedScale, fitScale));
+
+        return {
+          scale,
+          width: baseWidth * scale,
+          rowH: baseRowH * scale,
+          titleH: baseTitleH * scale,
+          pad: basePad * scale,
+          height: baseHeight * scale,
+          font: baseFont * scale,
+          swatch: baseSwatch * scale,
+          radius: 7 * scale
+        };
+      }
+
+      function constrainLegendToImage() {
+        if (!state.baseSource || !state.originalWidth || !state.originalHeight) return;
+        const layout = getLegendLayout(getLegendItems());
+        const margin = Math.min(12, Math.max(0, Math.min(state.originalWidth, state.originalHeight) / 20));
+        const maxX = Math.max(margin, state.originalWidth - layout.width - margin);
+        const maxY = Math.max(margin, state.originalHeight - layout.height - margin);
+        state.legend.x = clamp(state.legend.x, margin, maxX);
+        state.legend.y = clamp(state.legend.y, margin, maxY);
+      }
+
+      function drawLegend(targetCtx, mode) {
+        const items = getLegendItems();
+        const layout = getLegendLayout(items);
+        constrainLegendToImage();
+
+        const screenMode = mode === "screen";
+        const origin = screenMode ? imageToScreen(state.legend) : { x: state.legend.x, y: state.legend.y };
+        const renderScale = screenMode ? state.scale : 1;
+
+        const x = origin.x;
+        const y = origin.y;
+        const width = layout.width * renderScale;
+        const rowH = layout.rowH * renderScale;
+        const titleH = layout.titleH * renderScale;
+        const pad = layout.pad * renderScale;
+        const height = layout.height * renderScale;
+        const font = layout.font * renderScale;
+        const swatch = layout.swatch * renderScale;
+        const radius = Math.max(2, layout.radius * renderScale);
+
+        targetCtx.save();
+        targetCtx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        targetCtx.strokeStyle = "rgba(66, 82, 107, 0.28)";
+        targetCtx.lineWidth = Math.max(1, renderScale);
+        roundRect(targetCtx, x, y, width, height, radius);
+        targetCtx.fill();
+        targetCtx.stroke();
+
+        targetCtx.fillStyle = "#1d2733";
+        targetCtx.font = "700 " + Math.max(7, font + renderScale) + "px Microsoft YaHei, sans-serif";
+        targetCtx.textAlign = "left";
+        targetCtx.textBaseline = "middle";
+        targetCtx.fillText("图例", x + pad, y + titleH / 2);
+
+        if (items.length === 0) {
+          targetCtx.font = Math.max(7, font) + "px Microsoft YaHei, sans-serif";
+          targetCtx.fillStyle = "#667085";
+          targetCtx.fillText("暂无已闭合区域", x + pad, y + titleH + rowH / 2);
+        } else {
+          items.forEach((item, index) => {
+            const rowY = y + titleH + index * rowH;
+            targetCtx.fillStyle = rgbToHex(item.rgb);
+            targetCtx.fillRect(x + pad, rowY + rowH / 2 - swatch / 2, swatch, swatch);
+            targetCtx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            targetCtx.lineWidth = Math.max(1, renderScale);
+            targetCtx.strokeRect(x + pad, rowY + rowH / 2 - swatch / 2, swatch, swatch);
+            targetCtx.fillStyle = "#26364a";
+            targetCtx.font = Math.max(7, font) + "px Microsoft YaHei, sans-serif";
+            const text = item.name + "  RGB(" + item.rgb.join(",") + ")";
+            targetCtx.fillText(text, x + pad + swatch + 8 * renderScale, rowY + rowH / 2);
+          });
+        }
+        targetCtx.restore();
+
+        if (screenMode) {
+          state.legend.box = { x, y, w: width, h: height };
+        }
+      }
+
+      async function exportCurrentFile() {
+        if (!state.baseSource) {
+          setStatus("请先导入文件");
+          return;
+        }
+        if (state.baseKind === "pdf") {
+          await exportPdfFile();
+          return;
+        }
+        await exportImageFile();
+      }
+
+      async function exportImageFile() {
+        const extension = getExportImageExtension();
+        const mimeType = getMimeByImageExtension(extension);
+        const defaultBaseName = getDefaultPairBaseName();
+        const enteredBaseName = prompt("请输入导出名称（无需扩展名）", defaultBaseName);
+        if (enteredBaseName === null) return;
+        const baseName = sanitizeBaseName(enteredBaseName.trim() || defaultBaseName);
+        const imageName = baseName + "." + extension;
+        const projectName = baseName + ".json";
+
+        const out = buildOutputCanvas();
+        try {
+          const imageBlob = await canvasToBlob(out, mimeType, getImageQualityByExtension(extension));
+          if (!imageBlob) {
+            setStatus("导出失败，文件尺寸可能过大");
+            return;
+          }
+
+          saveCurrentPageAnnotations();
+          const projectBlob = buildProjectBlob();
+          await saveExportPair(imageBlob, imageName, projectBlob, projectName);
+          persistProjectSnapshot("paired-export");
+          setStatus("已导出：" + imageName + " + " + projectName);
+        } catch (error) {
+          if (error && error.name === "AbortError") {
+            setStatus("已取消导出");
+            return;
+          }
+          console.error(error);
+          setStatus("导出失败，请重试");
+        }
+      }
+
+      async function exportPdfFile() {
+        const defaultBaseName = getDefaultPairBaseName();
+        const enteredBaseName = prompt("请输入导出名称（无需扩展名）", defaultBaseName);
+        if (enteredBaseName === null) return;
+        const baseName = sanitizeBaseName(enteredBaseName.trim() || defaultBaseName);
+        const pdfName = baseName + ".pdf";
+        const projectName = baseName + ".json";
+
+        try {
+          const out = buildOutputCanvas();
+          const imageDataUrl = out.toDataURL("image/jpeg", 0.92);
+          const pdfBlob = buildSingleImagePdfBlob(imageDataUrl, out.width, out.height);
+
+          saveCurrentPageAnnotations();
+          const projectBlob = buildProjectBlob();
+          await saveExportPair(pdfBlob, pdfName, projectBlob, projectName);
+          persistProjectSnapshot("paired-export");
+          setStatus("已导出：" + pdfName + " + " + projectName);
+        } catch (error) {
+          if (error && error.name === "AbortError") {
+            setStatus("已取消导出");
+            return;
+          }
+          console.error(error);
+          setStatus("导出 PDF 失败，请重试");
+        }
+      }
+
+      function buildOutputCanvas() {
+        const out = document.createElement("canvas");
+        out.width = state.originalWidth;
+        out.height = state.originalHeight;
+        const outCtx = out.getContext("2d");
+        outCtx.imageSmoothingEnabled = true;
+        outCtx.imageSmoothingQuality = "high";
+        outCtx.drawImage(state.baseSource, 0, 0, state.originalWidth, state.originalHeight);
+        drawRegions(outCtx, "export", { forceAll: true });
+        if (state.legendVisible) drawLegend(outCtx, "export");
+        return out;
+      }
+
+      function canvasToBlob(canvas, mimeType, quality) {
+        return new Promise((resolve, reject) => {
+          try {
+            canvas.toBlob(resolve, mimeType, quality);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+
+      function downloadBlob(blob, fileName) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      function fitToScreen() {
+        if (!state.baseSource || !state.originalWidth || !state.originalHeight) return;
+        const padding = 40;
+        const scaleX = (state.cssWidth - padding) / state.originalWidth;
+        const scaleY = (state.cssHeight - padding) / state.originalHeight;
+        state.scale = clamp(Math.min(scaleX, scaleY), 0.04, 8);
+        state.offsetX = (state.cssWidth - state.originalWidth * state.scale) / 2;
+        state.offsetY = (state.cssHeight - state.originalHeight * state.scale) / 2;
+        updateZoomLabel();
+        render();
+      }
+
+      function showActualSize() {
+        if (!state.baseSource) return;
+        state.scale = 1;
+        state.offsetX = (state.cssWidth - state.originalWidth) / 2;
+        state.offsetY = (state.cssHeight - state.originalHeight) / 2;
+        updateZoomLabel();
+        render();
+      }
+
+      function zoomAt(factor, screenX, screenY) {
+        if (!state.baseSource) return;
+        const before = screenToImage(screenX, screenY);
+        const nextScale = clamp(state.scale * factor, 0.04, 12);
+        state.scale = nextScale;
+        state.offsetX = screenX - before.x * state.scale;
+        state.offsetY = screenY - before.y * state.scale;
+        updateZoomLabel();
+        render();
+      }
+
+      function togglePanMode() {
+        state.panMode = !state.panMode;
+        state.vertexTool = null;
+        updateToolButtons();
+        setCanvasCursor(state.panMode ? "grab" : "crosshair");
+        setStatus(state.panMode ? "已进入拖动画布模式" : "已退出拖动画布模式");
+      }
+
+      function updateZoomLabel() {
+        els.zoomLabel.textContent = Math.round(state.scale * 100) + "%";
+      }
+
+      function updateMouseStatus() {
+        if (state.mouseImage) {
+          const x = state.mouseImage.x.toFixed(1);
+          const y = state.mouseImage.y.toFixed(1);
+          els.coordReadout.textContent = "x：" + x + "　y：" + y;
+          els.mouseStatus.textContent = "鼠标坐标：x " + x + "，y " + y;
+        } else {
+          els.coordReadout.textContent = "x：-　y：-";
+          els.mouseStatus.textContent = "鼠标坐标：-";
+        }
+      }
+
+      function updateSelectionStatus() {
+        const selected = getSelectedRegion();
+        const active = getActiveRegion();
+        if (selected) {
+          const text = selected.name + (selected.closed ? "（已闭合）" : "（绘制中）");
+          els.selectionReadout.textContent = "当前选中：" + text;
+          els.selectedStatus.textContent = "选中区域：" + text;
+        } else {
+          els.selectionReadout.textContent = "当前未选中区域";
+          els.selectedStatus.textContent = "选中区域：无";
+        }
+        if (active) {
+          els.actionStatus.textContent = "状态：当前正在绘制：" + active.name;
+        }
+      }
+
+      function setStatus(message) {
+        els.actionStatus.textContent = "状态：" + message;
+      }
+
+      function setCanvasCursor(cursor) {
+        els.canvas.style.cursor = cursor;
+      }
+
+      function updateHoverCursor(screen, image) {
+        if (state.panMode) {
+          setCanvasCursor("grab");
+          return;
+        }
+        if (findCurveControlAt(screen.x, screen.y)) {
+          setCanvasCursor("grab");
+          return;
+        }
+        if (state.legendVisible && state.legend.box && pointInRect(screen, state.legend.box)) {
+          setCanvasCursor("move");
+          return;
+        }
+        const selected = getSelectedRegion();
+        const active = getActiveRegion();
+        if (active && !active.closed && shouldAutoCloseActiveRegion(active, screen)) {
+          setCanvasCursor("pointer");
+          return;
+        }
+        if (findCurveControlAt(screen.x, screen.y)) {
+          setCanvasCursor("grab");
+          return;
+        }
+        if ((state.vertexTool === "curve" || state.vertexTool === "straight") && selected && selected.closed) {
+          setCanvasCursor(findEdgeAt(screen.x, screen.y, selected) ? "copy" : "crosshair");
+          return;
+        }
+        if (state.vertexTool === "add") {
+          if (selected && selected.closed && image && (pointInPolygon(image, selected.points) || findEdgeAt(screen.x, screen.y, selected))) {
+            setCanvasCursor("copy");
+          } else {
+            setCanvasCursor("crosshair");
+          }
+          return;
+        }
+        if (findVertexAt(screen.x, screen.y)) {
+          setCanvasCursor(state.vertexTool === "delete" ? "not-allowed" : "grab");
+          return;
+        }
+        if (findLabelAt(screen.x, screen.y) || (image && findRegionAt(image))) {
+          setCanvasCursor("move");
+          return;
+        }
+        setCanvasCursor(getActiveRegion() ? "crosshair" : "default");
+      }
+
+      function onKeyDown(event) {
+        if (isTypingTarget(event.target)) return;
+
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          undoLastPoint();
+          return;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelDrawing();
+          return;
+        }
+
+        if (event.key === "Delete") {
+          event.preventDefault();
+          deleteSelectedRegion();
+          return;
+        }
+
+        if (event.code === "Space") {
+          event.preventDefault();
+          togglePanMode();
+        }
+      }
+
+      function isTypingTarget(target) {
+        if (!target) return false;
+        return ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName);
+      }
+
+      function getCanvasPoint(event) {
+        const rect = els.canvas.getBoundingClientRect();
+        return {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top
+        };
+      }
+
+      function screenToImage(x, y) {
+        return {
+          x: (x - state.offsetX) / state.scale,
+          y: (y - state.offsetY) / state.scale
+        };
+      }
+
+      function imageToScreen(point) {
+        return {
+          x: state.offsetX + point.x * state.scale,
+          y: state.offsetY + point.y * state.scale
+        };
+      }
+
+      function isInsideImage(point) {
+        return point.x >= 0 && point.y >= 0 && point.x <= state.originalWidth && point.y <= state.originalHeight;
+      }
+
+      function clampPoint(point) {
+        return {
+          x: clamp(point.x, 0, state.originalWidth),
+          y: clamp(point.y, 0, state.originalHeight)
+        };
+      }
+
+      function constrainDelta(points, dx, dy) {
+        const xs = points.map((point) => point.x);
+        const ys = points.map((point) => point.y);
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+        return {
+          dx: clamp(dx, -minX, state.originalWidth - maxX),
+          dy: clamp(dy, -minY, state.originalHeight - maxY)
+        };
+      }
+
+      function findVertexAt(screenX, screenY) {
+        const regions = [...state.regions].sort((a, b) => {
+          if (a.id === state.selectedRegionId) return -1;
+          if (b.id === state.selectedRegionId) return 1;
+          return b.id - a.id;
+        });
+        for (const region of regions) {
+          for (let i = region.points.length - 1; i >= 0; i -= 1) {
+            const p = imageToScreen(region.points[i]);
+            if (distance(screenX, screenY, p.x, p.y) <= 9) {
+              return { region, index: i };
+            }
+          }
+        }
+        return null;
+      }
+
+      function findEdgeAt(screenX, screenY, region) {
+        if (!region || region.points.length < 2) return null;
+        ensureSegments(region);
+        const count = region.closed ? region.points.length : region.points.length - 1;
+        for (let i = 0; i < count; i += 1) {
+          const tolerance = Math.max(10, Math.min(22, region.strokeWidth * state.scale + 8));
+          if (distanceToRegionSegment(screenX, screenY, region, i) <= tolerance) {
+            return { insertIndex: i + 1, edgeIndex: i };
+          }
+        }
+        return null;
+      }
+
+      function findNearestEdgeAt(screenX, screenY, region) {
+        if (!region || region.points.length < 2) return null;
+        ensureSegments(region);
+        const count = region.closed ? region.points.length : region.points.length - 1;
+        let best = null;
+        for (let i = 0; i < count; i += 1) {
+          const dist = distanceToRegionSegment(screenX, screenY, region, i);
+          if (!best || dist < best.distance) {
+            best = { insertIndex: i + 1, edgeIndex: i, distance: dist };
+          }
+        }
+        return best;
+      }
+
+      function findLabelAt(screenX, screenY) {
+        if (!state.showLabel) return null;
+        for (let i = state.regions.length - 1; i >= 0; i -= 1) {
+          const region = state.regions[i];
+          if (region.closed && region._labelBox && pointInRect({ x: screenX, y: screenY }, region._labelBox)) {
+            return { region };
+          }
+        }
+        return null;
+      }
+
+      function findRegionAt(imagePoint) {
+        for (let i = state.regions.length - 1; i >= 0; i -= 1) {
+          const region = state.regions[i];
+          if (region.closed && pointInPolygon(imagePoint, region.points)) {
+            return region;
+          }
+        }
+        return null;
+      }
+
+      function pointInPolygon(point, polygon) {
+        let inside = false;
+        for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
+          const xi = polygon[i].x;
+          const yi = polygon[i].y;
+          const xj = polygon[j].x;
+          const yj = polygon[j].y;
+          const intersect = yi > point.y !== yj > point.y &&
+            point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + Number.EPSILON) + xi;
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+
+      function pointInRect(point, rect) {
+        return point.x >= rect.x && point.y >= rect.y && point.x <= rect.x + rect.w && point.y <= rect.y + rect.h;
+      }
+
+      function distance(x1, y1, x2, y2) {
+        return Math.hypot(x1 - x2, y1 - y2);
+      }
+
+      function distanceToSegment(px, py, ax, ay, bx, by) {
+        const dx = bx - ax;
+        const dy = by - ay;
+        if (dx === 0 && dy === 0) return distance(px, py, ax, ay);
+        const t = clamp(((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy), 0, 1);
+        return distance(px, py, ax + t * dx, ay + t * dy);
+      }
+
+      function polygonCentroid(points) {
+        if (!points.length) return { x: 0, y: 0 };
+        let twiceArea = 0;
+        let cx = 0;
+        let cy = 0;
+        for (let i = 0; i < points.length; i += 1) {
+          const current = points[i];
+          const next = points[(i + 1) % points.length];
+          const cross = current.x * next.y - next.x * current.y;
+          twiceArea += cross;
+          cx += (current.x + next.x) * cross;
+          cy += (current.y + next.y) * cross;
+        }
+        if (Math.abs(twiceArea) < 0.001) {
+          const sum = points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
+          return { x: sum.x / points.length, y: sum.y / points.length };
+        }
+        return {
+          x: cx / (3 * twiceArea),
+          y: cy / (3 * twiceArea)
+        };
+      }
+
+      function cleanDuplicateTail(region) {
+        while (region.points.length > 1) {
+          const last = region.points[region.points.length - 1];
+          const prev = region.points[region.points.length - 2];
+          if (distance(last.x, last.y, prev.x, prev.y) <= 2) {
+            region.points.pop();
+          } else {
+            break;
+          }
+        }
+        if (region.points.length > 2) {
+          const first = region.points[0];
+          const last = region.points[region.points.length - 1];
+          if (distance(first.x, first.y, last.x, last.y) <= 2) {
+            region.points.pop();
+          }
+        }
+      }
+
+      function getLegendItems() {
+        const seen = new Set();
+        const items = [];
+        const orderMap = new Map(LEGEND_ORDER.map((name, index) => [name, index]));
+
+        state.regions.forEach((region, regionIndex) => {
+          if (!region.closed || region.points.length < 3) return;
+          const key = region.name + "|" + region.rgb.join(",");
+          if (seen.has(key)) return;
+          seen.add(key);
+          items.push({
+            name: region.name,
+            rgb: region.rgb,
+            _originalIndex: regionIndex
+          });
+        });
+
+        items.sort((a, b) => {
+          const aOrder = orderMap.has(a.name) ? orderMap.get(a.name) : Number.MAX_SAFE_INTEGER;
+          const bOrder = orderMap.has(b.name) ? orderMap.get(b.name) : Number.MAX_SAFE_INTEGER;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return a._originalIndex - b._originalIndex;
+        });
+
+        return items.map(({ name, rgb }) => ({ name, rgb }));
+      }
+
+      function resetLegendPosition() {
+        const margin = 24;
+        state.legend.x = margin;
+        state.legend.y = margin;
+        constrainLegendToImage();
+      }
+
+      function getSegmentControlPoint(region, index) {
+        ensureSegments(region);
+        const segment = region.segments[index] || { type: "line" };
+        const start = region.points[index];
+        const end = region.points[(index + 1) % region.points.length];
+
+        if (segment.type === "curve") {
+          if (segment.through) {
+            return segment.through;
+          }
+          if (segment.control) {
+            return quadraticPoint(start, segment.control, end, 0.5);
+          }
+        }
+
+        return {
+          x: (start.x + end.x) / 2,
+          y: (start.y + end.y) / 2
+        };
+      }
+
+      function isCurvedSegment(region, index) {
+        ensureSegments(region);
+        const segment = region.segments[index] || { type: "line" };
+        return segment.type === "curve" && Boolean(segment.through || segment.control);
+      }
+
+      function getBezierControlForSegment(region, index) {
+        ensureSegments(region);
+        const segment = region.segments[index] || { type: "line" };
+        const start = region.points[index];
+        const end = region.points[(index + 1) % region.points.length];
+
+        if (segment.type !== "curve") {
+          return {
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2
+          };
+        }
+
+        if (segment.through) {
+          return {
+            x: 2 * segment.through.x - (start.x + end.x) / 2,
+            y: 2 * segment.through.y - (start.y + end.y) / 2
+          };
+        }
+
+        if (segment.control) {
+          return segment.control;
+        }
+
+        return {
+          x: (start.x + end.x) / 2,
+          y: (start.y + end.y) / 2
+        };
+      }
+
+      function ensureSegments(region) {
+        if (!region) return;
+        if (!Array.isArray(region.segments)) region.segments = [];
+        const needed = region.closed ? region.points.length : Math.max(0, region.points.length - 1);
+        for (let i = 0; i < needed; i += 1) {
+          const segment = region.segments[i];
+          if (!segment || !["line", "curve"].includes(segment.type)) {
+            region.segments[i] = { type: "line" };
+          } else if (segment.type === "curve") {
+            if (segment.through) {
+              segment.through = clampPoint(segment.through);
+              segment.curveMode = "arc";
+            } else if (segment.control) {
+              segment.control = clampPoint(segment.control);
+            } else {
+              const a = region.points[i];
+              const b = region.points[(i + 1) % region.points.length];
+              segment.through = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+              segment.curveMode = "arc";
+              segment.control = null;
+            }
+          }
+        }
+        region.segments.length = needed;
+      }
+
+      function cloneSegments(segments) {
+        return Array.isArray(segments) ? segments.map((segment) => ({
+          type: segment.type === "curve" ? "curve" : "line",
+          curveMode: segment.curveMode || (segment.through ? "arc" : ""),
+          through: segment.through ? { x: segment.through.x, y: segment.through.y } : null,
+          control: segment.control ? { x: segment.control.x, y: segment.control.y } : null
+        })) : [];
+      }
+
+      function serializeSegments(region) {
+        ensureSegments(region);
+        return region.segments.map((segment) => ({
+          type: segment.type === "curve" ? "curve" : "line",
+          curveMode: segment.type === "curve" && segment.through ? "arc" : "",
+          through: segment.type === "curve" && segment.through
+            ? { x: Number(segment.through.x), y: Number(segment.through.y) }
+            : null,
+          control: segment.type === "curve" && segment.control
+            ? { x: Number(segment.control.x), y: Number(segment.control.y) }
+            : null
+        }));
+      }
+
+      function deserializeSegments(segments) {
+        return Array.isArray(segments) ? segments.map((segment) => ({
+          type: segment && segment.type === "curve" ? "curve" : "line",
+          curveMode: segment && segment.curveMode ? String(segment.curveMode) : "",
+          through: segment && segment.through ? { x: Number(segment.through.x) || 0, y: Number(segment.through.y) || 0 } : null,
+          control: segment && segment.control ? { x: Number(segment.control.x) || 0, y: Number(segment.control.y) || 0 } : null
+        })) : [];
+      }
+
+      function outputSegments(region) {
+        ensureSegments(region);
+        if (!region.segments.some((segment, index) => isCurvedSegment(region, index))) return [];
+        return region.segments.map((segment, index) => {
+          if (!isCurvedSegment(region, index)) return { type: "line" };
+          const through = getSegmentControlPoint(region, index);
+          return {
+            type: "arc",
+            through: [Math.round(through.x), Math.round(through.y)]
+          };
+        });
+      }
+
+      function findCurveControlAt(screenX, screenY) {
+        const region = getSelectedRegion();
+        if (!region || !region.closed || region.points.length < 3) return null;
+        ensureSegments(region);
+        for (let i = 0; i < region.segments.length; i += 1) {
+          const control = imageToScreen(getSegmentControlPoint(region, i));
+          if (distance(screenX, screenY, control.x, control.y) <= 11) {
+            return { region, index: i };
+          }
+        }
+        return null;
+      }
+
+      function distanceToRegionSegment(screenX, screenY, region, edgeIndex) {
+        ensureSegments(region);
+        const start = imageToScreen(region.points[edgeIndex]);
+        const end = imageToScreen(region.points[(edgeIndex + 1) % region.points.length]);
+        if (isArcSegment(region, edgeIndex)) {
+          const spec = getCircularArcSpecForSegment(region, edgeIndex, imageToScreen);
+          if (spec) return distanceToCircularArcSegment(screenX, screenY, spec);
+          const control = imageToScreen(getBezierControlForSegment(region, edgeIndex));
+          return distanceToQuadraticSegment(screenX, screenY, start, control, end);
+        }
+        if (isCurvedSegment(region, edgeIndex)) {
+          const control = imageToScreen(getBezierControlForSegment(region, edgeIndex));
+          return distanceToQuadraticSegment(screenX, screenY, start, control, end);
+        }
+        return distanceToSegment(screenX, screenY, start.x, start.y, end.x, end.y);
+      }
+
+      function distanceToQuadraticSegment(px, py, start, control, end) {
+        let best = Infinity;
+        let prev = start;
+        for (let i = 1; i <= 28; i += 1) {
+          const t = i / 28;
+          const current = quadraticPoint(start, control, end, t);
+          best = Math.min(best, distanceToSegment(px, py, prev.x, prev.y, current.x, current.y));
+          prev = current;
+        }
+        return best;
+      }
+
+      function quadraticPoint(start, control, end, t) {
+        const mt = 1 - t;
+        return {
+          x: mt * mt * start.x + 2 * mt * t * control.x + t * t * end.x,
+          y: mt * mt * start.y + 2 * mt * t * control.y + t * t * end.y
+        };
+      }
+
+      function isArcSegment(region, index) {
+        ensureSegments(region);
+        const segment = region.segments[index] || { type: "line" };
+        return segment.type === "curve" && Boolean(segment.through);
+      }
+
+      function getCircularArcSpecForSegment(region, index, toTarget) {
+        ensureSegments(region);
+        const start = toTarget(region.points[index]);
+        const through = toTarget(getSegmentControlPoint(region, index));
+        const end = toTarget(region.points[(index + 1) % region.points.length]);
+        return getCircularArcSpecFromPoints(start, through, end);
+      }
+
+      function getCircularArcSpecFromPoints(start, through, end) {
+        const circle = circleFromThreePoints(start, through, end);
+        if (!circle) return null;
+
+        const startAngle = Math.atan2(start.y - circle.cy, start.x - circle.cx);
+        const throughAngle = Math.atan2(through.y - circle.cy, through.x - circle.cx);
+        const endAngle = Math.atan2(end.y - circle.cy, end.x - circle.cx);
+        const clockwisePassesThrough = isAngleBetweenClockwise(startAngle, throughAngle, endAngle);
+
+        return {
+          cx: circle.cx,
+          cy: circle.cy,
+          r: circle.r,
+          startAngle,
+          endAngle,
+          anticlockwise: !clockwisePassesThrough
+        };
+      }
+
+      function circleFromThreePoints(a, b, c) {
+        const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+        if (Math.abs(d) < 0.0001) return null;
+
+        const a2 = a.x * a.x + a.y * a.y;
+        const b2 = b.x * b.x + b.y * b.y;
+        const c2 = c.x * c.x + c.y * c.y;
+
+        const cx = (a2 * (b.y - c.y) + b2 * (c.y - a.y) + c2 * (a.y - b.y)) / d;
+        const cy = (a2 * (c.x - b.x) + b2 * (a.x - c.x) + c2 * (b.x - a.x)) / d;
+        const r = distance(cx, cy, a.x, a.y);
+
+        if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r) || r <= 0.1) return null;
+        return { cx, cy, r };
+      }
+
+      function normalizeAngle(angle) {
+        const twoPi = Math.PI * 2;
+        return ((angle % twoPi) + twoPi) % twoPi;
+      }
+
+      function clockwiseAngleDelta(from, to) {
+        return normalizeAngle(to - from);
+      }
+
+      function isAngleBetweenClockwise(start, mid, end) {
+        return clockwiseAngleDelta(start, mid) <= clockwiseAngleDelta(start, end) + 0.000001;
+      }
+
+      function circularArcDelta(spec) {
+        return spec.anticlockwise
+          ? clockwiseAngleDelta(spec.endAngle, spec.startAngle)
+          : clockwiseAngleDelta(spec.startAngle, spec.endAngle);
+      }
+
+      function circularArcPoint(spec, t) {
+        const delta = circularArcDelta(spec);
+        const angle = spec.anticlockwise
+          ? spec.startAngle - delta * t
+          : spec.startAngle + delta * t;
+        return {
+          x: spec.cx + Math.cos(angle) * spec.r,
+          y: spec.cy + Math.sin(angle) * spec.r
+        };
+      }
+
+      function distanceToCircularArcSegment(px, py, spec) {
+        const arcLength = Math.max(1, circularArcDelta(spec) * spec.r);
+        const steps = clamp(Math.ceil(arcLength / 12), 18, 96);
+        let best = Infinity;
+        let prev = circularArcPoint(spec, 0);
+        for (let i = 1; i <= steps; i += 1) {
+          const current = circularArcPoint(spec, i / steps);
+          best = Math.min(best, distanceToSegment(px, py, prev.x, prev.y, current.x, current.y));
+          prev = current;
+        }
+        return best;
+      }
+
+      function getSelectedRegion() {
+        return getRegionById(state.selectedRegionId);
+      }
+
+      function getActiveRegion() {
+        return getRegionById(state.activeRegionId);
+      }
+
+      function getRegionById(id) {
+        return state.regions.find((region) => region.id === id) || null;
+      }
+
+      function hasAnyRegion() {
+        if (state.annotationsByPage.size) {
+          for (const regions of state.annotationsByPage.values()) {
+            if (regions.some((region) => region.points.length > 0)) return true;
+          }
+        }
+        return state.regions.some((region) => region.points.length > 0);
+      }
+
+      function getRgbInputs() {
+        return [
+          clamp(Math.round(Number(els.rgbR.value) || 0), 0, 255),
+          clamp(Math.round(Number(els.rgbG.value) || 0), 0, 255),
+          clamp(Math.round(Number(els.rgbB.value) || 0), 0, 255)
+        ];
+      }
+
+      function setRgbInputs(rgb) {
+        els.rgbR.value = rgb[0];
+        els.rgbG.value = rgb[1];
+        els.rgbB.value = rgb[2];
+      }
+
+      function hexToRgb(hex) {
+        const cleaned = hex.replace("#", "");
+        const value = parseInt(cleaned, 16);
+        return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+      }
+
+      function rgbToHex(rgb) {
+        return "#" + rgb.map((value) => {
+          const hex = clamp(Math.round(value), 0, 255).toString(16);
+          return hex.length === 1 ? "0" + hex : hex;
+        }).join("");
+      }
+
+      function darkenRgb(rgb, amount) {
+        return rgb.map((value) => clamp(value - amount, 0, 255));
+      }
+
+      function rgbaFromRgb(rgb, opacity) {
+        return "rgba(" + rgb[0] + "," + rgb[1] + "," + rgb[2] + "," + opacity + ")";
+      }
+
+      function roundRect(targetCtx, x, y, width, height, radius) {
+        const r = Math.min(radius, width / 2, height / 2);
+        targetCtx.beginPath();
+        targetCtx.moveTo(x + r, y);
+        targetCtx.lineTo(x + width - r, y);
+        targetCtx.quadraticCurveTo(x + width, y, x + width, y + r);
+        targetCtx.lineTo(x + width, y + height - r);
+        targetCtx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+        targetCtx.lineTo(x + r, y + height);
+        targetCtx.quadraticCurveTo(x, y + height, x, y + height - r);
+        targetCtx.lineTo(x, y + r);
+        targetCtx.quadraticCurveTo(x, y, x + r, y);
+        targetCtx.closePath();
+      }
+
+      function uniqueNames(names) {
+        return [...new Set(names.filter(Boolean))];
+      }
+
+      function getDefaultExportName() {
+        return getDefaultExportNameByExt(state.baseKind === "pdf" ? "pdf" : getExportImageExtension());
+      }
+
+      function normalizePngName(fileName) {
+        return normalizeFileName(fileName, "png");
+      }
+
+      function clamp(value, min, max) {
+        return Math.min(max, Math.max(min, value));
+      }
+    })();
+  </script>
+</body>
+</html>
