@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>个人发票池</title>
+  <style>
+    :root { color-scheme: light; font-family: "Microsoft YaHei", Arial, sans-serif; }
+    body { margin: 0; background: #f6f7f9; color: #1f2933; }
+    header { height: 56px; display: flex; gap: 10px; align-items: center; padding: 0 16px; background: #ffffff; border-bottom: 1px solid #d9dee6; position: sticky; top: 0; z-index: 2; }
+    h1 { font-size: 18px; margin: 0 8px 0 0; white-space: nowrap; }
+    input, select, button, textarea { font: inherit; border: 1px solid #c6ced8; border-radius: 6px; background: #fff; color: #1f2933; }
+    input, select { height: 34px; padding: 0 9px; }
+    button { height: 34px; padding: 0 11px; cursor: pointer; }
+    button.primary { background: #246bfe; color: #fff; border-color: #246bfe; }
+    button.text { border: 0; background: transparent; color: #2457b8; padding: 0 5px; }
+    main { padding: 14px 16px 24px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .filters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .drop { border: 1px dashed #9aa8b8; background: #fff; border-radius: 8px; min-height: 58px; display: flex; align-items: center; justify-content: center; color: #627083; margin-bottom: 12px; }
+    .drop.drag { background: #eaf1ff; border-color: #246bfe; color: #174ea6; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #d9dee6; }
+    th, td { border-bottom: 1px solid #e6eaf0; padding: 8px; text-align: left; font-size: 13px; vertical-align: middle; }
+    th { background: #eef1f5; font-weight: 600; white-space: nowrap; }
+    tr.invoice-row-unused > td { background: #e8f7ee; }
+    td.actions { min-width: 210px; }
+    .status { display: inline-block; min-width: 64px; text-align: center; padding: 3px 6px; border-radius: 999px; font-size: 12px; }
+    .unused { background: #e9f7ef; color: #17643a; }
+    .used { background: #edf1f7; color: #4b5563; }
+    .warn { color: #a35a00; font-size: 12px; }
+    dialog { border: 1px solid #c8d0db; border-radius: 8px; padding: 0; width: min(720px, calc(100vw - 32px)); }
+    dialog::backdrop { background: rgba(15, 23, 42, .35); }
+    .modal-head { height: 46px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e2e6ec; }
+    .modal-body { padding: 14px; display: grid; gap: 10px; }
+    .grid { display: grid; grid-template-columns: 120px 1fr; gap: 8px 10px; align-items: center; }
+    .modal-foot { padding: 12px 14px; display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid #e2e6ec; }
+    .msg { min-height: 20px; color: #465365; }
+    @media (max-width: 900px) {
+      table { min-width: 1180px; }
+      .table-wrap { overflow: auto; }
+      header { height: auto; padding: 10px; flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>个人发票池</h1>
+    <input id="search" type="search" placeholder="搜索发票号码、购买方、销售方、备注、日期、金额" style="min-width:320px; flex:1">
+    <button class="primary" id="syncBtn">同步邮箱</button>
+    <button id="settingsBtn">邮箱设置</button>
+  </header>
+  <main>
+    <div class="filters">
+      <select id="statusFilter">
+        <option value="">全部</option>
+        <option value="unused">未使用</option>
+        <option value="used">已使用</option>
+      </select>
+      <input id="monthFilter" placeholder="使用月份 2026-09" pattern="\d{4}-\d{2}">
+      <input id="buyerFilter" placeholder="购买方">
+      <span class="msg" id="message"></span>
+    </div>
+    <div class="drop" id="drop">拖拽 PDF / OFD / XML / PNG / JPG 发票文件到这里导入</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>状态</th><th>开票日期</th><th>金额</th><th>购买方</th><th>销售方</th><th>发票号码</th><th>来源</th><th>使用月份</th><th>发票文件</th><th>备注</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <dialog id="editDialog">
+    <div class="modal-head"><strong>编辑发票</strong><button class="text" onclick="editDialog.close()">关闭</button></div>
+    <div class="modal-body grid">
+      <input type="hidden" id="editId">
+      <label>开票日期</label><input id="editDate" placeholder="YYYY-MM-DD">
+      <label>金额</label><input id="editAmount" type="number" step="0.01">
+      <label>购买方</label><input id="editBuyer">
+      <label>销售方</label><input id="editSeller">
+      <label>发票号码</label><input id="editNumber">
+      <label>备注</label><textarea id="editNote" rows="3"></textarea>
+    </div>
+    <div class="modal-foot"><button onclick="editDialog.close()">取消</button><button class="primary" id="saveEdit">保存</button></div>
+  </dialog>
+
+  <dialog id="emailDialog">
+    <div class="modal-head"><strong>邮箱设置</strong><button class="text" onclick="emailDialog.close()">关闭</button></div>
+    <div class="modal-body">
+      <div class="grid">
+        <label>邮箱地址</label><input id="email" placeholder="name@example.com">
+        <label>IMAP Host</label><input id="imapHost" placeholder="imap.example.com">
+        <label>IMAP Port</label><input id="imapPort" type="number" value="993">
+        <label>SSL</label><input id="sslEnabled" type="checkbox" checked>
+        <label>启用</label><input id="enabled" type="checkbox" checked>
+        <label>授权码 / 应用密码</label><input id="password" type="password" placeholder="保存到 Windows Credential Manager">
+      </div>
+      <table>
+        <thead><tr><th>邮箱</th><th>IMAP</th><th>SSL</th><th>启用</th><th>凭据</th><th>操作</th></tr></thead>
+        <tbody id="accounts"></tbody>
+      </table>
+    </div>
+    <div class="modal-foot"><button id="saveAccount" class="primary">保存邮箱</button></div>
+  </dialog>
+
+  <dialog id="usedMonthDialog">
+    <div class="modal-head"><strong>使用月份</strong><button class="text" onclick="usedMonthDialog.close()">关闭</button></div>
+    <div class="modal-body grid">
+      <label>使用月份</label><select id="usedMonthSelect"></select>
+    </div>
+    <div class="modal-foot"><button onclick="usedMonthDialog.close()">取消</button><button class="primary" id="confirmUsedMonth">确认</button></div>
+  </dialog>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let invoices = [];
+    let pendingUsedId = null;
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, options);
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+      return data;
+    }
+
+    function setMessage(text) { $("message").textContent = text || ""; }
+
+    async function loadInvoices() {
+      const q = new URLSearchParams({
+        search: $("search").value,
+        status: $("statusFilter").value,
+        used_month: $("monthFilter").value,
+        buyer: $("buyerFilter").value
+      });
+      invoices = await api(`/api/invoices?${q}`);
+      $("rows").innerHTML = invoices.map(rowHtml).join("") || `<tr><td colspan="11">暂无发票</td></tr>`;
+    }
+
+    function rowHtml(x) {
+      const status = x.status === "used" ? "已使用" : "未使用";
+      const source = x.source === "email" ? "邮箱" : "手动上传";
+      const fileName = x.file_path.split(/[\\\\/]/).pop();
+      const incomplete = x.recognition_status === "incomplete" ? `<div class="warn">识别不完整</div>` : "";
+      const action = x.status === "used"
+        ? `<button class="text" onclick="markUnused(${x.id})">改回未使用</button>`
+        : `<button class="text" onclick="markUsed(${x.id})">标记已使用</button>`;
+      return `<tr class="${x.status === "unused" ? "invoice-row-unused" : ""}">
+        <td><span class="status ${x.status}">${status}</span>${incomplete}</td>
+        <td>${esc(x.invoice_date || "")}</td>
+        <td>${x.amount == null ? "" : Number(x.amount).toFixed(2)}</td>
+        <td>${esc(x.buyer || "")}</td>
+        <td>${esc(x.seller || "")}</td>
+        <td>${esc(x.invoice_number || "")}</td>
+        <td>${source}</td>
+        <td>${esc(x.used_month || "")}</td>
+        <td><button class="text" onclick="openFile(${x.id})">${esc(fileName)}</button></td>
+        <td>${esc(x.note || "")}</td>
+        <td class="actions">${action}<button class="text" onclick="showEdit(${x.id})">编辑</button><button class="text" onclick="recognize(${x.id})">重新识别</button></td>
+      </tr>`;
+    }
+
+    function esc(v) { return String(v).replace(/[&<>"']/g, s => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[s])); }
+
+    function markUsed(id) {
+      pendingUsedId = id;
+      fillUsedMonthOptions();
+      usedMonthDialog.showModal();
+    }
+    async function markUnused(id) { await api(`/api/invoices/${id}/mark-unused`, { method: "POST" }); await loadInvoices(); }
+    async function openFile(id) { await api(`/api/invoices/${id}/open`, { method: "POST" }); }
+    async function recognize(id) {
+      setMessage("正在重新识别...");
+      try {
+        const r = await api(`/api/invoices/${id}/recognize`, { method: "POST" });
+        setMessage(r.message || "重新识别完成");
+        await loadInvoices();
+      } catch (error) {
+        setMessage(error.message || "重新识别失败");
+      }
+    }
+
+    function showEdit(id) {
+      const x = invoices.find(i => i.id === id);
+      $("editId").value = id; $("editDate").value = x.invoice_date || ""; $("editAmount").value = x.amount || "";
+      $("editBuyer").value = x.buyer || ""; $("editSeller").value = x.seller || ""; $("editNumber").value = x.invoice_number || ""; $("editNote").value = x.note || "";
+      editDialog.showModal();
+    }
+
+    $("saveEdit").onclick = async () => {
+      const id = $("editId").value;
+      await api(`/api/invoices/${id}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        invoice_date: $("editDate").value, amount: $("editAmount").value, buyer: $("editBuyer").value,
+        seller: $("editSeller").value, invoice_number: $("editNumber").value, note: $("editNote").value
+      }) });
+      editDialog.close(); await loadInvoices();
+    };
+
+    function fillUsedMonthOptions() {
+      const now = new Date();
+      const options = [];
+      for (let i = 0; i <= 24; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        options.push(`<option value="${value}">${value}</option>`);
+      }
+      $("usedMonthSelect").innerHTML = options.join("");
+    }
+
+    $("confirmUsedMonth").onclick = async () => {
+      if (!pendingUsedId) return;
+      const used_month = $("usedMonthSelect").value;
+      await api(`/api/invoices/${pendingUsedId}/mark-used`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ used_month })
+      });
+      pendingUsedId = null;
+      usedMonthDialog.close();
+      await loadInvoices();
+    };
+
+    const drop = $("drop");
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("drag"); };
+    drop.ondragleave = () => drop.classList.remove("drag");
+    drop.ondrop = async (e) => {
+      e.preventDefault(); drop.classList.remove("drag");
+      const form = new FormData();
+      for (const file of e.dataTransfer.files) form.append("files", file);
+      setMessage("正在导入...");
+      const r = await fetch("/api/import", { method: "POST", body: form }).then(x => x.json());
+      setMessage(importMessage(r));
+      await loadInvoices();
+    };
+
+    function importMessage(r) {
+      const results = r.results || [];
+      const messages = [];
+      const hasResult = (...names) => results.some(x => names.includes(x.result));
+      const hasExistingOrSkipped = results.some(x => /duplicate|exists|existing|skipped|skip|已存在|跳过/i.test(String(x.result || "")));
+      if (r.imported) messages.push(`导入 ${r.imported} 张`);
+      if (hasResult("duplicate_hash")) messages.push("相同附件已存在，未重复导入");
+      if (hasResult("duplicate_invoice", "duplicate_invoice_number")) messages.push("该发票已存在，已跳过");
+      if (!messages.length && hasExistingOrSkipped) messages.push("该发票已存在，已跳过");
+      if (hasResult("invalid_attachment")) messages.push("有附件文件异常，未导入");
+      if (hasResult("unsupported")) messages.push("有不支持的文件，已跳过");
+      return messages.join("；") || "没有可导入的发票";
+    }
+
+    async function loadAccounts() {
+      const list = await api("/api/email-accounts");
+      $("accounts").innerHTML = list.map(a => `<tr><td>${esc(a.email)}</td><td>${esc(a.imap_host)}:${a.imap_port}</td><td>${a.ssl_enabled ? "是" : "否"}</td><td>${a.enabled ? "是" : "否"}</td><td>${a.credential_reference ? "已保存" : "未保存"}</td><td><button class="text" onclick="testAccount(${a.id})">测试连接</button></td></tr>`).join("");
+    }
+    $("settingsBtn").onclick = async () => { await loadAccounts(); emailDialog.showModal(); };
+    $("saveAccount").onclick = async () => {
+      await api("/api/email-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        email: $("email").value, imap_host: $("imapHost").value, imap_port: $("imapPort").value,
+        ssl_enabled: $("sslEnabled").checked, enabled: $("enabled").checked, password: $("password").value
+      }) });
+      $("password").value = ""; await loadAccounts();
+    };
+    window.testAccount = async (id) => { setMessage("正在测试邮箱..."); await api(`/api/email-accounts/${id}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); setMessage("邮箱连接正常"); };
+    $("syncBtn").onclick = async () => {
+      setMessage("正在同步邮箱...");
+      const r = await api("/api/sync-email", { method: "POST" });
+      const total = r.result.reduce((sum, x) => ({
+        checked: sum.checked + (x.checked || 0),
+        invoiceMail: sum.invoiceMail + (x.invoiceMail || 0),
+        normalMail: sum.normalMail + (x.normalMail || 0),
+        processed: sum.processed + (x.processed || 0),
+        alreadyProcessed: sum.alreadyProcessed + (x.alreadyProcessed || 0),
+        imported: sum.imported + (x.imported || 0),
+        failed: sum.failed + (x.failed || (x.result === "error" ? 1 : 0))
+      }), { checked: 0, invoiceMail: 0, normalMail: 0, processed: 0, alreadyProcessed: 0, imported: 0, failed: 0 });
+      setMessage(`同步完成：检查 ${total.checked} 封｜发票邮件 ${total.invoiceMail} 封（本次处理 ${total.processed}，已处理 ${total.alreadyProcessed}，失败 ${total.failed}）｜普通邮件 ${total.normalMail} 封｜新增发票 ${total.imported} 张`);
+      await loadInvoices();
+    };
+
+    for (const id of ["search", "statusFilter", "monthFilter", "buyerFilter"]) $(id).addEventListener("input", () => loadInvoices().catch(e => setMessage(e.message)));
+    loadInvoices().catch(e => setMessage(e.message));
+  </script>
+</body>
+</html>

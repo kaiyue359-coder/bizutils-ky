@@ -1,0 +1,14 @@
+# Local invoice data and attachments
+Data/
+Invoices/
+
+# Runtime logs
+*.log
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor files
+.DS_Store
+Thumbs.db

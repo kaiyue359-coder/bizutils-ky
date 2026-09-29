@@ -1,0 +1,14 @@
+{
+  "name": "personal-invoice-pool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only personal invoice pool.",
+  "type": "module",
+  "scripts": {
+    "start": "node App/server.js",
+    "verify": "node Tests/verify.js"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}
