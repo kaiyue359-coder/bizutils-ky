@@ -23,6 +23,7 @@ export type ColumnMeta = TextNote & {
 };
 
 export type SortDirection = "asc" | "desc";
+export type ColumnSort = { column: string; direction: SortDirection };
 
 export type FilterOperator =
   | "contains"

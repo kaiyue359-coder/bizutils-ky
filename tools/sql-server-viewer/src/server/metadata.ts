@@ -63,6 +63,7 @@ export const getTablesForDatabase = async (database: string): Promise<TableNode[
     INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
     LEFT JOIN sys.extended_properties ep
       ON ep.major_id = t.object_id
+      AND ep.class = 1
       AND ep.minor_id = 0
       AND ep.name = 'MS_Description'
     LEFT JOIN sys.dm_db_partition_stats ps
@@ -131,6 +132,7 @@ export const getColumns = async (
       INNER JOIN sys.types ty ON ty.user_type_id = c.user_type_id
       LEFT JOIN sys.extended_properties ep
         ON ep.major_id = c.object_id
+        AND ep.class = 1
         AND ep.minor_id = c.column_id
         AND ep.name = 'MS_Description'
       WHERE s.name = @schemaName

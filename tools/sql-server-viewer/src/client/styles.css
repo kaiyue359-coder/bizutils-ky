@@ -230,7 +230,7 @@ button {
   gap: 12px;
 }
 
-.connection-status div:not(.avatar) {
+.connection-status > div:not(.avatar) {
   display: grid;
   gap: 3px;
   text-align: right;
@@ -357,6 +357,29 @@ button {
   color: #526780;
   font-size: 12px;
 }
+
+.readonly-grid { height: 100%; display: flex; flex-direction: column; min-width: 0; }
+.grid-progress { height: 4px; flex-shrink: 0; }
+.table-scroll { overflow: auto; flex: 1; min-height: 0; }
+.data-table { table-layout: fixed; border-collapse: separate; border-spacing: 0; min-width: 100%; font-size: 14px; }
+.data-table th { position: sticky; top: 0; z-index: 1; background: #f8fbff; text-align: left; height: 78px; }
+.data-table td { height: 46px; padding: 10px 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px solid #edf0f3; }
+.data-table tbody tr:hover { background: #f3f7fa; }
+.column-sort { display: flex; align-items: center; gap: 6px; padding: 12px 14px; width: 100%; height: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.column-header { min-width: 0; }
+.column-header > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort-priority { display: flex; align-items: center; flex-shrink: 0; color: #0066e6; }
+.column-resizer { position: absolute; right: 0; top: 0; height: 100%; width: 7px; cursor: col-resize; border-right: 1px solid #dbe5f0; touch-action: none; }
+.column-resizer:hover { background: #dcebfb; }
+.grid-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; padding: 10px; border-top: 1px solid #dbe5f0; font-size: 13px; }
+.page-buttons { display: flex; align-items: center; gap: 3px; }
+.query-panel { width: min(560px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
+.query-rule { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.query-rule .MuiSelect-root { min-width: 0; }
+.query-rule > .MuiInputBase-root:first-of-type { flex: 1; min-width: 120px; }
+.filter-summary { display: flex; align-items: center; gap: 4px; }
+.filter-summary > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 13px; }
+.popover-panel { max-height: 75vh; overflow: auto; max-width: calc(100vw - 32px); }
 
 @media (max-width: 900px) {
   .app-shell {

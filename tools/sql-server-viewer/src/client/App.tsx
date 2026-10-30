@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Button,
   Checkbox,
   CircularProgress,
   FormControlLabel,
+  IconButton,
   InputAdornment,
   MenuItem,
   Popover,
@@ -19,13 +20,14 @@ import {
   Grid2X2,
   RefreshCw,
   Search,
-  SlidersHorizontal
+  SlidersHorizontal,
+  X
 } from "lucide-react";
-import { DataGrid, GridColDef, GridColumnVisibilityModel, GridSortModel } from "@mui/x-data-grid";
-import type { DatabaseNode, TableDataResponse, TableNode } from "../shared/types";
+import type { ColumnSort, DatabaseNode, TableDataResponse, TableNode } from "../shared/types";
+import { ReadonlyGrid } from "./ReadonlyGrid";
+import { SortPanel } from "./SortPanel";
 import { activateDataSource, fetchDataSources, fetchMetadata, fetchTableData, type DataSource } from "./api";
 
-const pageSizeOptions = [50, 100, 200, 500];
 
 const Description = ({ text }: { text?: string | null }) =>
   text ? <div className="muted-label">{text}</div> : null;
@@ -49,12 +51,7 @@ const NodeText = ({ name, description }: { name: string; description?: string | 
   </Tooltip>
 );
 
-const HeaderCell = ({ name, description }: { name: string; description?: string | null }) => (
-  <div className="column-header">
-    <span>{name}</span>
-    <Description text={description} />
-  </div>
-);
+const operatorLabels: Record<string, string> = { contains: "包含", equals: "等于", startsWith: "开头是", gt: "大于", gte: "大于等于", lt: "小于", lte: "小于等于", isEmpty: "为空" };
 
 export const App = () => {
   const [databases, setDatabases] = useState<DatabaseNode[]>([]);
@@ -69,8 +66,11 @@ export const App = () => {
   const [dataSearch, setDataSearch] = useState("");
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
-  const [sortModel, setSortModel] = useState<GridSortModel>([]);
-  const [columnVisibilityModel, setColumnVisibilityModel] = useState<GridColumnVisibilityModel>({});
+  const [sortModel, setSortModel] = useState<ColumnSort[]>([]);
+  const [columnVisibilityModel, setColumnVisibilityModel] = useState<Record<string, boolean>>({});
+  const [sortAnchor, setSortAnchor] = useState<HTMLButtonElement | null>(null);
+  const requestVersion = useRef(0);
+  const [searchTerm, setSearchTerm] = useState("");
   const [columnsAnchor, setColumnsAnchor] = useState<HTMLButtonElement | null>(null);
   const [filterAnchor, setFilterAnchor] = useState<HTMLButtonElement | null>(null);
   const [filterColumn, setFilterColumn] = useState("");
@@ -123,6 +123,9 @@ export const App = () => {
       setPage(0);
       setSortModel([]);
       setFilters([]);
+      setFilterColumn("");
+      setDataSearch("");
+      setSearchTerm("");
       setColumnVisibilityModel({});
       await loadMetadata(true);
     } catch (err) {
@@ -162,36 +165,40 @@ export const App = () => {
       return;
     }
     setLoadingRows(true);
+    const version = ++requestVersion.current;
     setError(null);
     try {
-      const primarySort = sortModel[0];
       const result = await fetchTableData({
         database: activeTable.database,
         schema: activeTable.schema,
         table: activeTable.name,
         page: page + 1,
         pageSize,
-        search: dataSearch,
-        sortColumn: primarySort?.field,
-        sortDirection: primarySort?.sort ?? undefined,
+        search: searchTerm,
+        sorts: sortModel,
         filters
       });
+      if (version !== requestVersion.current) return;
       setTableData(result);
+      setPage(result.page - 1);
+      setPageSize(result.pageSize);
     } catch (err) {
+      if (version !== requestVersion.current) return;
       setError(err instanceof Error ? err.message : "Failed to load table data.");
     } finally {
-      setLoadingRows(false);
+      if (version === requestVersion.current) setLoadingRows(false);
     }
   };
 
   useEffect(() => {
     void loadRows();
-  }, [activeTable, page, pageSize, sortModel, filters]);
+    return () => { requestVersion.current++; };
+  }, [activeTable, page, pageSize, sortModel, filters, searchTerm]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
       setPage(0);
-      void loadRows();
+      setSearchTerm(dataSearch);
     }, 280);
     return () => window.clearTimeout(handle);
   }, [dataSearch]);
@@ -214,20 +221,6 @@ export const App = () => {
       }))
       .filter((database) => database.name.toLowerCase().includes(term) || database.tables.length > 0);
   }, [databases, metadataSearch]);
-
-  const columns: GridColDef[] = useMemo(() => {
-    if (!tableData) {
-      return [];
-    }
-
-    return tableData.columns.map((column) => ({
-      field: column.name,
-      minWidth: 130,
-      flex: 1,
-      sortable: true,
-      renderHeader: () => <HeaderCell name={column.name} description={column.description} />
-    }));
-  }, [tableData]);
 
   useEffect(() => {
     setFilterColumn((current) => current || tableData?.columns[0]?.name || "");
@@ -295,7 +288,7 @@ export const App = () => {
                     <div className="table-list">
                       {database.tables.map((table) => {
                         const active =
-                          activeTable?.database === table.database && activeTable?.name === table.name;
+                          activeTable?.database === table.database && activeTable?.schema === table.schema && activeTable?.name === table.name;
                         return (
                           <button
                             key={`${table.database}.${table.schema}.${table.name}`}
@@ -303,6 +296,13 @@ export const App = () => {
                             onClick={() => {
                               setActiveTable(table);
                               setPage(0);
+                              setSortModel([]);
+                              setFilters([]);
+                              setFilterColumn("");
+                              setColumnVisibilityModel({});
+                              setTableData(null);
+                              setDataSearch("");
+                              setSearchTerm("");
                             }}
                           >
                             <Grid2X2 size={21} />
@@ -387,12 +387,12 @@ export const App = () => {
           />
           <Tooltip title="字段筛选">
             <Button variant="outlined" startIcon={<Filter size={19} />} onClick={(event) => setFilterAnchor(event.currentTarget)}>
-              筛选
+              筛选{filters.length ? ` (${filters.length})` : ""}
             </Button>
           </Tooltip>
-          <Tooltip title="点击列头可排序">
-            <Button variant="outlined" startIcon={<SlidersHorizontal size={19} />}>
-              排序
+          <Tooltip title="多条件排序">
+            <Button variant="outlined" startIcon={<SlidersHorizontal size={19} />} onClick={(event) => setSortAnchor(event.currentTarget)}>
+              排序{sortModel.length ? ` (${sortModel.length})` : ""}
             </Button>
           </Tooltip>
           <Tooltip title="列显示、隐藏和列宽可在表格内调整">
@@ -412,46 +412,11 @@ export const App = () => {
         {error && <div className="error-bar">{error}</div>}
 
         <section className="grid-panel">
-          <DataGrid
-            rows={(tableData?.rows ?? []).map((row, index) => ({ ...row, __grid_id: `${page}-${index}` }))}
-            columns={columns}
-            getRowId={(row) => row.__grid_id}
-            loading={loadingRows}
-            rowCount={tableData?.rowCount ?? 0}
-            paginationMode="server"
-            sortingMode="server"
-            paginationModel={{ page, pageSize }}
-            onPaginationModelChange={(model) => {
-              setPage(model.page);
-              setPageSize(model.pageSize);
-            }}
-            pageSizeOptions={pageSizeOptions}
-            sortModel={sortModel}
-            columnVisibilityModel={columnVisibilityModel}
-            onColumnVisibilityModelChange={setColumnVisibilityModel}
-            onSortModelChange={(model) => {
-              setSortModel(model);
-              setPage(0);
-            }}
-            disableRowSelectionOnClick
-            disableMultipleRowSelection
-            density="standard"
-            slots={{
-              noRowsOverlay: () => <div className="no-rows">没有数据</div>
-            }}
-            sx={{
-              border: 0,
-              "& .MuiDataGrid-columnHeaders": {
-                background: "#f8fbff"
-              },
-              "& .MuiDataGrid-columnHeader": {
-                minHeight: "78px !important"
-              },
-              "& .MuiDataGrid-cell": {
-                color: "#10213b"
-              }
-            }}
-          />
+          <ReadonlyGrid key={activeTable ? `${activeTable.database}.${activeTable.schema}.${activeTable.name}` : "empty"}
+            data={tableData} page={page} pageSize={pageSize} loading={loadingRows}
+            hidden={columnVisibilityModel} sorts={sortModel} onPage={setPage}
+            onSize={(size) => { setPageSize(size); setPage(0); }}
+            onSort={(sorts) => { setSortModel(sorts); setPage(0); }} />
         </section>
 
         <Popover
@@ -461,23 +426,33 @@ export const App = () => {
           anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
         >
           <div className="popover-panel">
-            <strong>字段筛选</strong>
-            <Select size="small" value={filterColumn} onChange={(event) => setFilterColumn(event.target.value)}>
+            <div className="filter-summary"><strong>字段筛选 · 全部满足</strong><IconButton title="关闭筛选" aria-label="关闭筛选" onClick={() => setFilterAnchor(null)}><X size={18} /></IconButton></div>
+            {filters.map((filter, index) => <div className="filter-summary" key={index}>
+              <span>{filter.column} · {operatorLabels[filter.operator]} · {filter.operator === "isEmpty" ? "" : filter.value}</span>
+              <IconButton size="small" title="移除条件" aria-label={`删除筛选 ${index + 1}`} onClick={() => { setFilters(filters.filter((_, i) => i !== index)); setPage(0); }}><X size={16} /></IconButton>
+            </div>)}
+            <Select size="small" value={filterColumn} inputProps={{ "aria-label": "筛选字段" }} onChange={(event) => setFilterColumn(event.target.value)}>
               {tableData?.columns.map((column) => (
                 <MenuItem key={column.name} value={column.name}>
                   {column.name}
                 </MenuItem>
               ))}
             </Select>
-            <Select size="small" value={filterOperator} onChange={(event) => setFilterOperator(event.target.value)}>
+            <Select size="small" value={filterOperator} inputProps={{ "aria-label": "筛选运算符" }} onChange={(event) => setFilterOperator(event.target.value)}>
               <MenuItem value="contains">包含</MenuItem>
               <MenuItem value="equals">等于</MenuItem>
               <MenuItem value="startsWith">开头是</MenuItem>
+              <MenuItem value="gt">大于</MenuItem>
+              <MenuItem value="gte">大于等于</MenuItem>
+              <MenuItem value="lt">小于</MenuItem>
+              <MenuItem value="lte">小于等于</MenuItem>
+              <MenuItem value="isEmpty">为空</MenuItem>
             </Select>
             <TextField
               size="small"
               placeholder="筛选值"
               value={filterValue}
+              disabled={filterOperator === "isEmpty"}
               onChange={(event) => setFilterValue(event.target.value)}
             />
             <div className="popover-actions">
@@ -495,18 +470,23 @@ export const App = () => {
               <Button
                 size="small"
                 variant="contained"
+                disabled={!filterColumn || (filterOperator !== "isEmpty" && !filterValue) || filters.length >= 50}
                 onClick={() => {
-                  if (filterColumn && filterValue) {
-                    setFilters([{ column: filterColumn, operator: filterOperator, value: filterValue }]);
+                  if (filterColumn && (filterValue || filterOperator === "isEmpty")) {
+                    setFilters([...filters, { column: filterColumn, operator: filterOperator, value: filterValue }]);
+                    setFilterValue("");
                     setPage(0);
                   }
-                  setFilterAnchor(null);
                 }}
               >
-                应用
+                添加条件
               </Button>
             </div>
           </div>
+        </Popover>
+
+        <Popover open={Boolean(sortAnchor)} anchorEl={sortAnchor} onClose={() => setSortAnchor(null)} anchorOrigin={{ vertical: "bottom", horizontal: "left" }}>
+          <SortPanel columns={tableData?.columns ?? []} value={sortModel} onApply={(sorts) => { setSortModel(sorts); setPage(0); setSortAnchor(null); }} />
         </Popover>
 
         <Popover

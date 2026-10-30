@@ -197,6 +197,16 @@ Limit to selected tables:
 SQLSV_TABLE_ALLOWLIST=orders,order_items,dbo.store_info
 ```
 
+## Path Deployment
+
+For a Viewer hosted below an existing site path such as `https://example.com/sqlviewer/`, set this before building:
+
+```text
+SQLSV_PUBLIC_BASE_PATH=/sqlviewer/
+```
+
+The reverse proxy must forward `/sqlviewer/api/*` to the local Viewer API after removing the `/sqlviewer` prefix, and serve the built `dist/client` files for `/sqlviewer/*`. Keep the Viewer on a dedicated path so it cannot conflict with the host site's routes.
+
 ## GitHub Sharing Notes
 
 Before pushing to GitHub:

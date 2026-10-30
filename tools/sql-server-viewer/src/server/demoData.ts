@@ -1,4 +1,5 @@
 import type { ColumnMeta, DatabaseNode, TableDataResponse } from "../shared/types";
+import { resolveSorts, validateFilters } from "./queryOptions";
 
 const orderColumns: ColumnMeta[] = [
   { name: "order_id", description: "订单号", dataType: "int", isNullable: false, ordinal: 1 },
@@ -20,7 +21,7 @@ const products = [
   ["P007", "冰淇淋咖啡", 34]
 ] as const;
 
-const orderRows = Array.from({ length: 360 }, (_, index) => {
+const orderRows = Array.from({ length: 1260 }, (_, index) => {
   const product = products[index % products.length];
   const quantity = (index % 3) + 1;
   const date = new Date("2024-09-15T12:30:21.000Z");
@@ -90,6 +91,7 @@ export const getDemoTableData = (params: {
   sortColumn?: string;
   sortDirection?: "asc" | "desc";
   filtersJson?: string;
+  sortsJson?: string;
 }): TableDataResponse => {
   const term = params.search?.toLowerCase().trim();
   let rows = [...orderRows];
@@ -101,15 +103,18 @@ export const getDemoTableData = (params: {
   }
 
   if (params.filtersJson) {
-    const filters = JSON.parse(params.filtersJson) as Array<{
-      column: keyof (typeof orderRows)[number];
-      operator: string;
-      value?: string;
-    }>;
+    const filters = validateFilters(params.filtersJson, new Set(orderColumns.map((column) => column.name)));
     for (const filter of filters) {
       rows = rows.filter((row) => {
-        const value = String(row[filter.column] ?? "").toLowerCase();
+        const raw = row[filter.column as keyof typeof row];
+        const value = String(raw ?? "").toLowerCase();
         const expected = String(filter.value ?? "").toLowerCase();
+        if (filter.operator === "isEmpty") return raw == null || value === "";
+        const comparison = typeof raw === "number" ? raw - Number(expected) : value.localeCompare(expected);
+        if (filter.operator === "gt") return comparison > 0;
+        if (filter.operator === "gte") return comparison >= 0;
+        if (filter.operator === "lt") return comparison < 0;
+        if (filter.operator === "lte") return comparison <= 0;
         if (filter.operator === "equals") {
           return value === expected;
         }
@@ -121,16 +126,21 @@ export const getDemoTableData = (params: {
     }
   }
 
-  if (params.sortColumn) {
+  const sorts = resolveSorts(params, new Set(orderColumns.map((column) => column.name)));
+  if (sorts.length) {
     rows.sort((a, b) => {
-      const left = a[params.sortColumn as keyof typeof a];
-      const right = b[params.sortColumn as keyof typeof b];
+      for (const sort of sorts) {
+      const left = a[sort.column as keyof typeof a];
+      const right = b[sort.column as keyof typeof b];
       const result = String(left).localeCompare(String(right), "zh-CN", { numeric: true });
-      return params.sortDirection === "desc" ? -result : result;
+      if (result) return sort.direction === "desc" ? -result : result;
+      }
+      return 0;
     });
   }
 
-  const start = (params.page - 1) * params.pageSize;
+  const page = Math.min(params.page, Math.max(1, Math.ceil(rows.length / params.pageSize)));
+  const start = (page - 1) * params.pageSize;
 
   return {
     database: params.database,
@@ -139,7 +149,7 @@ export const getDemoTableData = (params: {
     columns: orderColumns,
     rows: rows.slice(start, start + params.pageSize),
     rowCount: rows.length,
-    page: params.page,
+    page,
     pageSize: params.pageSize
   };
 };

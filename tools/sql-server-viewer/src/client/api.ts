@@ -1,4 +1,7 @@
-import type { DatabaseNode, TableDataResponse } from "../shared/types";
+import type { ColumnSort, DatabaseNode, TableDataResponse } from "../shared/types";
+
+const apiBasePath = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api`;
+const apiPath = (path: string) => `${apiBasePath}${path}`;
 
 export type DataSource = {
   id: "sqlserver" | "mysql";
@@ -6,7 +9,7 @@ export type DataSource = {
 };
 
 export const fetchDataSources = async () => {
-  const response = await fetch("/api/data-sources");
+  const response = await fetch(apiPath("/data-sources"));
   if (!response.ok) {
     throw new Error("Failed to load data sources.");
   }
@@ -14,7 +17,7 @@ export const fetchDataSources = async () => {
 };
 
 export const activateDataSource = async (id: DataSource["id"]) => {
-  const response = await fetch(`/api/data-sources/${id}/activate`, {
+  const response = await fetch(apiPath(`/data-sources/${id}/activate`), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: "{}"
@@ -27,7 +30,7 @@ export const activateDataSource = async (id: DataSource["id"]) => {
 };
 
 export const fetchMetadata = async () => {
-  const response = await fetch("/api/metadata");
+  const response = await fetch(apiPath("/metadata"));
   if (!response.ok) {
     throw new Error("Failed to load metadata.");
   }
@@ -42,6 +45,7 @@ export const fetchTableData = async (params: {
   pageSize: number;
   search: string;
   sortColumn?: string;
+  sorts?: ColumnSort[];
   sortDirection?: "asc" | "desc";
   filters?: Array<{ column: string; operator: string; value?: string }>;
 }) => {
@@ -63,8 +67,9 @@ export const fetchTableData = async (params: {
   if (params.filters?.length) {
     searchParams.set("filters", JSON.stringify(params.filters));
   }
+  if (params.sorts?.length) searchParams.set("sorts", JSON.stringify(params.sorts));
 
-  const response = await fetch(`/api/table-data?${searchParams.toString()}`);
+  const response = await fetch(`${apiPath("/table-data")}?${searchParams.toString()}`);
   if (!response.ok) {
     throw new Error("Failed to load table data.");
   }

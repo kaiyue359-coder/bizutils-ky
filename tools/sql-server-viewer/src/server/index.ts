@@ -7,6 +7,7 @@ import { closePools } from "./sqlServer";
 import { closeMySqlPool } from "./mysql";
 import { getDataSourceMetadata } from "./dataSource";
 import { getTableData } from "./tableData";
+import { validatePagination } from "./queryOptions";
 
 const app = Fastify({ logger: true });
 
@@ -55,10 +56,13 @@ app.get<{
     sortColumn?: string;
     sortDirection?: "asc" | "desc";
     filters?: string;
+    sorts?: string;
   };
 }>("/api/table-data", async (request) => {
   const page = Number(request.query.page ?? 1);
-  const pageSize = Number(request.query.pageSize ?? appConfig.defaultPageSize);
+  const requestedSize = Number(request.query.pageSize ?? appConfig.defaultPageSize);
+  validatePagination(page, requestedSize);
+  const pageSize = Math.min(requestedSize, appConfig.maxPageSize, 500);
 
   if (appConfig.demoMode) {
     return getDemoTableData({
@@ -69,7 +73,8 @@ app.get<{
       search: request.query.search,
       sortColumn: request.query.sortColumn,
       sortDirection: request.query.sortDirection,
-      filtersJson: request.query.filters
+      filtersJson: request.query.filters,
+      sortsJson: request.query.sorts
     });
   }
 
@@ -82,7 +87,8 @@ app.get<{
     search: request.query.search,
     sortColumn: request.query.sortColumn,
     sortDirection: request.query.sortDirection,
-    filtersJson: request.query.filters
+    filtersJson: request.query.filters,
+    sortsJson: request.query.sorts
   });
 });
 

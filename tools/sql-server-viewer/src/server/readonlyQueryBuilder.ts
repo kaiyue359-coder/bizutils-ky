@@ -1,20 +1,10 @@
 import { appConfig } from "./config";
+import { resolveSorts, validateFilters } from "./queryOptions";
 import { getColumns, resolveTable } from "./metadata";
 import { getPool, quoteIdentifier, sql } from "./sqlServer";
 import type { ColumnFilter, SortDirection, TableDataResponse } from "../shared/types";
 
 const textTypes = new Set(["char", "nchar", "varchar", "nvarchar", "text", "ntext"]);
-
-const parseFilters = (filtersJson?: string): ColumnFilter[] => {
-  if (!filtersJson) {
-    return [];
-  }
-  const parsed = JSON.parse(filtersJson) as ColumnFilter[];
-  if (!Array.isArray(parsed)) {
-    return [];
-  }
-  return parsed;
-};
 
 const buildWhere = (
   allowedColumns: Set<string>,
@@ -94,10 +84,11 @@ export const getTableData = async (params: {
   pageSize: number;
   search?: string;
   sortColumn?: string;
+  sortsJson?: string;
   sortDirection?: SortDirection;
   filtersJson?: string;
 }): Promise<TableDataResponse> => {
-  const page = Math.max(1, params.page);
+  let page = Math.max(1, params.page);
   const pageSize = Math.min(Math.max(1, params.pageSize), appConfig.maxPageSize);
   const table = await resolveTable(params.database, params.table, params.schema);
   const columns = await getColumns(params.database, table.schema, table.name);
@@ -106,12 +97,10 @@ export const getTableData = async (params: {
     .filter((column) => textTypes.has(column.dataType.toLowerCase()))
     .map((column) => column.name);
 
-  const sortColumn = params.sortColumn && allowedColumns.has(params.sortColumn) ? params.sortColumn : columns[0]?.name;
-  const sortDirection = params.sortDirection === "desc" ? "DESC" : "ASC";
-  const filters = parseFilters(params.filtersJson);
+  const sorts = resolveSorts(params, allowedColumns);
+  const filters = validateFilters(params.filtersJson, allowedColumns);
   const pool = await getPool(params.database);
   const tableRef = `${quoteIdentifier(table.schema)}.${quoteIdentifier(table.name)}`;
-  const offset = (page - 1) * pageSize;
 
   const countRequest = pool.request();
   const countWhere = buildWhere(allowedColumns, textColumns, params.search, filters, countRequest);
@@ -122,15 +111,18 @@ export const getTableData = async (params: {
   `);
 
   const dataRequest = pool.request();
+  const rowCount = Number(countResult.recordset[0]?.row_count ?? 0);
+  page = Math.min(page, Math.max(1, Math.ceil(rowCount / pageSize)));
+  const offset = (page - 1) * pageSize;
   const dataWhere = buildWhere(allowedColumns, textColumns, params.search, filters, dataRequest);
   dataRequest.input("offset", sql.Int, offset);
   dataRequest.input("pageSize", sql.Int, pageSize);
 
   const dataResult = await dataRequest.query<Record<string, unknown>>(`
-    SELECT ${columns.map((column) => quoteIdentifier(column.name)).join(", ")}
-    FROM ${tableRef}
+    SELECT ${columns.map((column) => `viewer_row.${quoteIdentifier(column.name)}`).join(", ")}
+    FROM ${tableRef} AS viewer_row
     ${dataWhere}
-    ORDER BY ${quoteIdentifier(sortColumn ?? columns[0].name)} ${sortDirection}
+    ORDER BY ${sorts.map((sort) => `viewer_row.${quoteIdentifier(sort.column)} ${sort.direction === "desc" ? "DESC" : "ASC"}`).join(", ")}
     OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY
   `);
 

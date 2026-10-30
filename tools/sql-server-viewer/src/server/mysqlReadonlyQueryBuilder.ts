@@ -1,4 +1,5 @@
 import { appConfig } from "./config";
+import { resolveSorts, validateFilters } from "./queryOptions";
 import type { RowDataPacket } from "mysql2";
 import { getDataSourceColumns, resolveDataSourceTable } from "./dataSource";
 import { getMySqlPool, quoteMySqlIdentifier } from "./mysql";
@@ -6,12 +7,6 @@ import type { ColumnFilter, SortDirection, TableDataResponse } from "../shared/t
 
 const textTypes = new Set(["char", "varchar", "tinytext", "text", "mediumtext", "longtext", "enum", "set"]);
 type CountRow = RowDataPacket & { row_count: number | string };
-
-const parseFilters = (filtersJson?: string): ColumnFilter[] => {
-  if (!filtersJson) return [];
-  const parsed = JSON.parse(filtersJson) as ColumnFilter[];
-  return Array.isArray(parsed) ? parsed : [];
-};
 
 const buildWhere = (allowedColumns: Set<string>, textColumns: string[], search: string | undefined, filters: ColumnFilter[]) => {
   const clauses: string[] = [];
@@ -46,17 +41,17 @@ const buildWhere = (allowedColumns: Set<string>, textColumns: string[], search: 
 
 export const getMySqlTableData = async (params: {
   database: string; schema?: string; table: string; page: number; pageSize: number; search?: string;
-  sortColumn?: string; sortDirection?: SortDirection; filtersJson?: string;
+  sortColumn?: string; sortDirection?: SortDirection; sortsJson?: string; filtersJson?: string;
 }): Promise<TableDataResponse> => {
-  const page = Math.max(1, params.page);
+  let page = Math.max(1, params.page);
   const pageSize = Math.min(Math.max(1, params.pageSize), appConfig.maxPageSize);
   const table = await resolveDataSourceTable(params.database, params.table, params.schema);
   const columns = await getDataSourceColumns(params.database, table.schema, table.name);
   if (!columns.length) throw new Error("Table has no readable columns.");
   const allowedColumns = new Set(columns.map((column) => column.name));
   const textColumns = columns.filter((column) => textTypes.has(column.dataType.toLowerCase())).map((column) => column.name);
-  const sortColumn = params.sortColumn && allowedColumns.has(params.sortColumn) ? params.sortColumn : columns[0].name;
-  const filters = parseFilters(params.filtersJson);
+  const sorts = resolveSorts(params, allowedColumns);
+  const filters = validateFilters(params.filtersJson, allowedColumns);
   const where = buildWhere(allowedColumns, textColumns, params.search, filters);
   const tableRef = `${quoteMySqlIdentifier(params.database)}.${quoteMySqlIdentifier(table.name)}`;
   const pool = getMySqlPool();
@@ -64,10 +59,11 @@ export const getMySqlTableData = async (params: {
     `SELECT COUNT(*) AS row_count FROM ${tableRef} ${where.sql}`,
     where.values
   );
+  page = Math.min(page, Math.max(1, Math.ceil(Number(countRows[0]?.row_count ?? 0) / pageSize)));
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT ${columns.map((column) => quoteMySqlIdentifier(column.name)).join(", ")}
      FROM ${tableRef} ${where.sql}
-     ORDER BY ${quoteMySqlIdentifier(sortColumn)} ${params.sortDirection === "desc" ? "DESC" : "ASC"}
+     ORDER BY ${sorts.map((sort) => `${quoteMySqlIdentifier(sort.column)} ${sort.direction === "desc" ? "DESC" : "ASC"}`).join(", ")}
      LIMIT ? OFFSET ?`,
     [...where.values, pageSize, (page - 1) * pageSize]
   );
